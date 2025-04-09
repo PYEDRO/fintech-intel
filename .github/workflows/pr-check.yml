@@ -1,0 +1,23 @@
+﻿name: PR Check
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  security-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block .env commits
+        run: |
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '^\.env$'; then
+            echo "ERROR: .env file must not be committed"
+            exit 1
+          fi
+      - name: Validate docker-compose
+        run: docker compose -f docker-compose.yml config > /dev/null
+      - name: Run tests
+        run: |
+          pip install -r backend/requirements.txt
+          cd backend && pytest tests/ -p no:cacheprovider -q
