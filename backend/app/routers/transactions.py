@@ -4,6 +4,7 @@ from typing import Optional, Literal
 from fastapi import APIRouter, Query
 from app.db import get_db
 from app.models.schemas import TransactionListResponse, Transaction
+from app.repositories.transaction_repository import TransactionRepository
 
 router = APIRouter(prefix="/api", tags=["transactions"])
 logger = logging.getLogger(__name__)
@@ -43,20 +44,19 @@ def list_transactions(
         params.append(end_date)
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
-    order = f"ORDER BY {sort_by} {sort_order.upper()}"
     offset = (page - 1) * per_page
 
     with get_db() as conn:
-        total = conn.execute(
-            f"SELECT COUNT(*) AS cnt FROM transacoes {where}", params
-        ).fetchone()["cnt"]
+        repo = TransactionRepository(conn)
+        rows, total = repo.list_paginated(
+            where=where,
+            params=params,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            limit=per_page,
+            offset=offset,
+        )
 
-        rows = conn.execute(
-            f"SELECT * FROM transacoes {where} {order} LIMIT ? OFFSET ?",
-            params + [per_page, offset],
-        ).fetchall()
-
-    items = [Transaction(**dict(r)) for r in rows]
+    items = [Transaction(**r) for r in rows]
     pages = max(1, math.ceil(total / per_page))
-
     return TransactionListResponse(items=items, total=total, page=page, pages=pages)
