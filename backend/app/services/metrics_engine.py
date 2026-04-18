@@ -1,6 +1,15 @@
+"""
+Metrics engine: SQL aggregations via TransactionRepository + Holt ETS projection.
+
+Projection uses Holt's linear (double exponential smoothing) instead of naive
+polyfit(deg=1), which is sensitive to outlier months and seasonal spikes.
+Holt adapts the level and trend estimates at each step, producing more stable forecasts.
+"""
 import logging
+import numpy as np
 from typing import Optional
 from app.db import get_db
+from app.repositories.transaction_repository import TransactionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +33,30 @@ def _build_where(
     return where, params
 
 
+def _holt_projection(monthly_revenue: list[float], steps: int = 3) -> list[float]:
+    """
+    Holt's linear exponential smoothing (level + trend).
+    α controls level smoothing, β controls trend smoothing.
+    Chosen values (0.4, 0.2) give moderate responsiveness without overfitting.
+    """
+    if len(monthly_revenue) < 2:
+        return []
+
+    alpha, beta = 0.4, 0.2
+    y = monthly_revenue
+
+    # Initialize
+    level = y[0]
+    trend = y[1] - y[0]
+
+    for val in y[1:]:
+        prev_level = level
+        level = alpha * val + (1 - alpha) * (prev_level + trend)
+        trend = beta * (level - prev_level) + (1 - beta) * trend
+
+    return [max(0.0, round(level + (i + 1) * trend, 2)) for i in range(steps)]
+
+
 def get_metrics(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -32,131 +65,57 @@ def get_metrics(
     where, params = _build_where(start_date, end_date, cliente)
 
     with get_db() as conn:
-        # ── Totals ────────────────────────────────────────────────────────────
-        row = conn.execute(
-            f"""
-            SELECT
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)  AS receita_total,
-                COALESCE(AVG(CASE WHEN status='pago' THEN valor END), 0)          AS ticket_medio,
-                COUNT(*)                                                           AS total_transacoes,
-                COALESCE(SUM(CASE WHEN status='pago'      THEN 1 ELSE 0 END), 0) AS pagas,
-                COALESCE(SUM(CASE WHEN status='pendente'  THEN 1 ELSE 0 END), 0) AS pendentes,
-                COALESCE(SUM(CASE WHEN status='atrasado'  THEN 1 ELSE 0 END), 0) AS atrasadas
-            FROM transacoes {where}
-            """,
-            params,
-        ).fetchone()
+        repo = TransactionRepository(conn)
 
-        total = row["total_transacoes"] or 1  # avoid /0
-        atrasadas = row["atrasadas"] or 0
+        agg = repo.get_aggregates(where, params)
+        total = agg["total_transacoes"] or 1
+        atrasadas = agg["atrasadas"] or 0
         taxa_inadimplencia = round((atrasadas / total) * 100, 2)
 
-        # ── Monthly evolution ─────────────────────────────────────────────────
-        evolucao_rows = conn.execute(
-            f"""
-            SELECT
-                strftime('%Y-%m', data)                                         AS mes,
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0) AS receita,
-                COUNT(*)                                                         AS count
-            FROM transacoes {where}
-            GROUP BY mes
-            ORDER BY mes
-            """,
-            params,
-        ).fetchall()
+        evolucao = repo.get_monthly_evolution(where, params)
+        por_cliente = repo.get_by_client(where, params)
+        por_categoria = repo.get_by_category(where, params)
+        last6 = repo.get_last_n_months_revenue(n=6, where=where, params=params)
 
-        # ── By client ─────────────────────────────────────────────────────────
-        cliente_rows = conn.execute(
-            f"""
-            SELECT
-                cliente,
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0) AS receita,
-                COUNT(*) AS count
-            FROM transacoes {where}
-            GROUP BY cliente
-            ORDER BY receita DESC
-            """,
-            params,
-        ).fetchall()
-
-        # ── By category ───────────────────────────────────────────────────────
-        cat_rows = conn.execute(
-            f"""
-            SELECT
-                COALESCE(categoria, 'Não Classificado')                          AS categoria,
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)  AS receita,
-                COUNT(*) AS count
-            FROM transacoes {where}
-            GROUP BY categoria
-            ORDER BY receita DESC
-            """,
-            params,
-        ).fetchall()
-
-        # ── Cash flow projection (last 6 months linear trend) ─────────────────
-        projection = _compute_projection(conn, where, params)
+    # ── Cash flow projection via Holt ETS ────────────────────────────────────
+    projection = []
+    if len(last6) >= 2:
+        revenues = [r["receita"] for r in last6]
+        projected_values = _holt_projection(revenues, steps=3)
+        last_mes = last6[-1]["mes"]
+        from datetime import datetime
+        last_dt = datetime.strptime(last_mes, "%Y-%m")
+        for i, proj_val in enumerate(projected_values, start=1):
+            month = last_dt.month + i
+            year = last_dt.year + (month - 1) // 12
+            month = ((month - 1) % 12) + 1
+            projection.append({"mes": f"{year:04d}-{month:02d}", "receita_projetada": proj_val})
 
     return {
-        "receita_total": round(row["receita_total"], 2),
-        "ticket_medio": round(row["ticket_medio"], 2),
+        "receita_total": round(agg["receita_total"], 2),
+        "ticket_medio": round(agg["ticket_medio"], 2),
         "taxa_inadimplencia": taxa_inadimplencia,
-        "total_transacoes": row["total_transacoes"],
-        "transacoes_pagas": row["pagas"],
-        "transacoes_pendentes": row["pendentes"],
-        "transacoes_atrasadas": row["atrasadas"],
+        "total_transacoes": agg["total_transacoes"],
+        "transacoes_paidas": agg["pagas"],
+        "transacoes_pagas": agg["pagas"],
+        "transacoes_pendentes": agg["pendentes"],
+        "transacoes_atrasadas": atrasadas,
         "evolucao_mensal": [
             {"mes": r["mes"], "receita": round(r["receita"], 2), "count": r["count"]}
-            for r in evolucao_rows
+            for r in evolucao
         ],
         "por_cliente": [
             {"cliente": r["cliente"], "receita": round(r["receita"], 2), "count": r["count"]}
-            for r in cliente_rows
+            for r in por_cliente
         ],
         "por_categoria": [
             {"categoria": r["categoria"], "receita": round(r["receita"], 2), "count": r["count"]}
-            for r in cat_rows
+            for r in por_categoria
         ],
         "por_status": {
-            "pago": row["pagas"],
-            "pendente": row["pendentes"],
-            "atrasado": row["atrasadas"],
+            "pago": agg["pagas"],
+            "pendente": agg["pendentes"],
+            "atrasado": atrasadas,
         },
         "projecao_fluxo": projection,
     }
-
-
-def _compute_projection(conn, where: str, params: list) -> list[dict]:
-    """Linear regression on last 6 months of paid revenue → 3-month forecast."""
-    import numpy as np
-
-    rows = conn.execute(
-        f"""
-        SELECT strftime('%Y-%m', data) AS mes,
-               SUM(CASE WHEN status='pago' THEN valor ELSE 0 END) AS receita
-        FROM transacoes {where}
-        GROUP BY mes ORDER BY mes DESC LIMIT 6
-        """,
-        params,
-    ).fetchall()
-
-    if len(rows) < 2:
-        return []
-
-    rows = list(reversed(rows))
-    x = np.arange(len(rows), dtype=float)
-    y = np.array([r["receita"] for r in rows], dtype=float)
-    coeffs = np.polyfit(x, y, 1)  # slope, intercept
-
-    # Generate next 3 months
-    from datetime import datetime
-    last_mes = rows[-1]["mes"]
-    last_dt = datetime.strptime(last_mes, "%Y-%m")
-    projection = []
-    for i in range(1, 4):
-        month = last_dt.month + i
-        year = last_dt.year + (month - 1) // 12
-        month = ((month - 1) % 12) + 1
-        proj_val = max(0.0, float(np.polyval(coeffs, len(rows) - 1 + i)))
-        projection.append({"mes": f"{year:04d}-{month:02d}", "receita_projetada": round(proj_val, 2)})
-
-    return projection
