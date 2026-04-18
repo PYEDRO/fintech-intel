@@ -18,7 +18,7 @@ def _clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Colunas ausentes no arquivo: {missing}")
 
-    df["data"] = pd.to_datetime(df["data"], dayfirst=True, errors="coerce")
+    df["data"] = pd.to_datetime(df["data"], format="mixed", dayfirst=True, errors="coerce")
     df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
     df = df.dropna(subset=["id", "valor", "data", "status", "cliente", "descricao"]).copy()
 

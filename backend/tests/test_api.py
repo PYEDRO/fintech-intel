@@ -272,10 +272,11 @@ class TestUploadEndpoint:
         assert data["total_rows"] == 10
         assert data["classified"] == 10
 
-    def test_missing_filename_returns_400(self, client):
-        with patch("app.routers.upload.process_upload", new_callable=AsyncMock):
-            r = client.post(
-                "/api/upload",
-                files={"file": ("", b"", "application/octet-stream")},
-            )
-        assert r.status_code == 400
+    def test_missing_filename_returns_error(self, client):
+        # FastAPI valida o campo File(...) no nível do multipart antes de
+        # chegar ao handler — arquivo com nome vazio retorna 422 (Unprocessable Entity)
+        r = client.post(
+            "/api/upload",
+            files={"file": ("", b"", "application/octet-stream")},
+        )
+        assert r.status_code == 422

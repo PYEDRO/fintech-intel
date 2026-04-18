@@ -20,7 +20,7 @@ def list_transactions(
     search: Optional[str] = Query(None),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
-    sort_by: str = Query("data", regex=f"^({'|'.join(ALLOWED_SORT)})$"),
+    sort_by: str = Query("data", pattern=f"^({'|'.join(ALLOWED_SORT)})$"),
     sort_order: Literal["asc", "desc"] = Query("desc"),
 ) -> TransactionListResponse:
     clauses, params = [], []
