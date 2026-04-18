@@ -148,13 +148,11 @@ def _compute_projection(conn, where: str, params: list) -> list[dict]:
     coeffs = np.polyfit(x, y, 1)  # slope, intercept
 
     # Generate next 3 months
-    from datetime import datetime, timedelta
+    from datetime import datetime
     last_mes = rows[-1]["mes"]
     last_dt = datetime.strptime(last_mes, "%Y-%m")
     projection = []
     for i in range(1, 4):
-        next_dt = last_dt.replace(day=1)
-        # advance i months
         month = last_dt.month + i
         year = last_dt.year + (month - 1) // 12
         month = ((month - 1) % 12) + 1

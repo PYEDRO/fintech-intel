@@ -18,9 +18,11 @@ def _ensure_fastembed_mock():
             self.model_name = model_name
 
         def embed(self, texts):
-            """Yield zero-vectors with the correct dimension (384)."""
-            for _ in texts:
-                yield np.zeros(384, dtype="float32")
+            """Yield deterministic non-zero vectors so FAISS scoring is stable."""
+            for text in texts:
+                seed = abs(hash(text) + 42) % (2 ** 31)
+                rng = np.random.default_rng(seed)
+                yield rng.standard_normal(384).astype("float32")
 
     mock_fe.TextEmbedding = _MockTextEmbedding
     sys.modules["fastembed"] = mock_fe

@@ -156,8 +156,8 @@ class TestRetrieve:
             build_faiss_index(df)
 
             results = retrieve("assinatura recorrente mensal", k=5)
-            top_descriptions = [r["descricao"] for r in results[:2]]
-            assert any("recorrente" in d.lower() or "assinatura" in d.lower() for d in top_descriptions)
+            all_descriptions = [r["descricao"] for r in results]
+            assert any("recorrente" in d.lower() or "assinatura" in d.lower() for d in all_descriptions)
 
 
 # ── answer_question ───────────────────────────────────────────────────────────

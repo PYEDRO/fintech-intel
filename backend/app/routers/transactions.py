@@ -1,7 +1,7 @@
 import logging
 import math
 from typing import Optional, Literal
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query
 from app.db import get_db
 from app.models.schemas import TransactionListResponse, Transaction
 

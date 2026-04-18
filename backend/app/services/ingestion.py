@@ -1,11 +1,8 @@
 import io
 import logging
-import asyncio
-from typing import Optional
 import pandas as pd
 from fastapi import UploadFile, HTTPException
 from app.db import get_db
-from app.config import settings
 from app.services.classifier import classify_descriptions_batch
 from app.services.rag import build_faiss_index
 

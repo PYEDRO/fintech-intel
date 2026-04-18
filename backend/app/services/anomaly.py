@@ -1,7 +1,6 @@
 import json
 import logging
 import numpy as np
-from typing import Any
 from openai import AsyncOpenAI
 from app.db import get_db
 from app.config import settings

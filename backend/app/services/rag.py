@@ -7,7 +7,6 @@ from pathlib import Path
 from fastembed import TextEmbedding
 from openai import AsyncOpenAI
 from app.config import settings
-from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
