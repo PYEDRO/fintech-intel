@@ -1,0 +1,42 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check .env not committed
+        run: |
+          if git diff --name-only origin/main...HEAD | grep -E '^\.env$'; then
+            echo "ERROR: .env file detected in commit. Remove it and use .env.example instead."
+            exit 1
+          fi
+          echo "OK: no .env in commit"
+
+      - name: Validate docker-compose syntax
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Check backend Dockerfile
+        run: docker build --no-cache --dry-run ./backend 2>/dev/null || echo "dry-run not supported, skipping"
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install and run tests
+        working-directory: backend
+        env:
+          DEEPSEEK_API_KEY: ""
+        run: |
+          pip install -r requirements.txt
+          pytest tests/ -p no:cacheprovider --no-cov -q

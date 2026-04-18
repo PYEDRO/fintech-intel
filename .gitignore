@@ -1,0 +1,51 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ── Ambientes virtuais ────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Secrets / Configuração local ─────────────────────────────────────────────
+.env
+*.env.local
+*.env.*.local
+
+# ── Dados persistidos (não versionar DB e índice FAISS) ──────────────────────
+backend/data/*.db
+backend/data/*.index
+backend/data/*.json
+# Manter o arquivo de amostra
+!backend/data/transacoes_sample.xlsx
+
+# ── Node.js / Next.js ────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.vercel/
+frontend/.env.local
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+*.log
+
+# ── IDEs ─────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
