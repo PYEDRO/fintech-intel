@@ -75,18 +75,24 @@ class TestDetectAnomalies:
         assert result == []
 
     async def test_zscore_anomaly_detected(self):
-        """One value far above the client mean → detected as anomaly."""
+        """One value far above the client mean → detected as anomaly.
+
+        Nota matemática: com n valores onde n-1 são normais e 1 é outlier,
+        z_outlier → sqrt(n-1). Precisamos n≥6 para z > 2.0 (sqrt(5)≈2.236).
+        Com n=5, z converge exatamente para 2.0 e nunca ultrapassa o threshold.
+        """
         rows = [
-            ("txn_001",   100.0, "pago", "Cliente A", "desc", "2024-01-01"),
-            ("txn_002",   110.0, "pago", "Cliente A", "desc", "2024-01-02"),
-            ("txn_003",   105.0, "pago", "Cliente A", "desc", "2024-01-03"),
-            ("txn_004",   108.0, "pago", "Cliente A", "desc", "2024-01-04"),
-            ("txn_005", 10000.0, "pago", "Cliente A", "outlier", "2024-01-05"),
+            ("txn_001",   100.0, "pago", "Cliente A", "desc",    "2024-01-01"),
+            ("txn_002",   110.0, "pago", "Cliente A", "desc",    "2024-01-02"),
+            ("txn_003",   105.0, "pago", "Cliente A", "desc",    "2024-01-03"),
+            ("txn_004",   108.0, "pago", "Cliente A", "desc",    "2024-01-04"),
+            ("txn_005",   102.0, "pago", "Cliente A", "desc",    "2024-01-05"),
+            ("txn_006", 10000.0, "pago", "Cliente A", "outlier", "2024-01-06"),
         ]
         with _patch_db(rows), _patch_settings():
             result = await detect_anomalies()
         anomaly_ids = [r["transacao_id"] for r in result]
-        assert "txn_005" in anomaly_ids
+        assert "txn_006" in anomaly_ids
 
     async def test_high_value_overdue_detected(self):
         """Overdue transaction above P75 → detected regardless of z-score."""
