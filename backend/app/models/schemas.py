@@ -1,7 +1,12 @@
+<<<<<<< HEAD
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal, Any
 from datetime import date
+=======
+from typing import List, Literal, Optional
+>>>>>>> 2eb76bd40a96b88b53abc41d623cae6580f1e188
 
+from pydantic import BaseModel, Field
 
 # ─── Upload (síncrono — mantido para compatibilidade com testes) ──────────────
 

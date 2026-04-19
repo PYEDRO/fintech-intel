@@ -1,16 +1,22 @@
 import json
 import logging
+
 import numpy as np
-from typing import Any
 from openai import AsyncOpenAI
-from app.db import get_db
+
 from app.config import settings
+from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
-ANOMALY_SYSTEM_PROMPT = """Você é um analista de risco financeiro. Dado um conjunto de transações anômalas detectadas estatisticamente, forneça uma contextualização breve e objetiva para cada uma.
-Retorne APENAS um JSON array com objetos {"transacao_id": "...", "motivo": "...", "score": 0.XX}.
-Sem texto adicional."""
+ANOMALY_SYSTEM_PROMPT = (
+    "Você é um analista de risco financeiro. "
+    "Dado um conjunto de transações anômalas detectadas estatisticamente, "
+    "forneça uma contextualização breve e objetiva para cada uma.\n"
+    'Retorne APENAS um JSON array com objetos '
+    '{"transacao_id": "...", "motivo": "...", "score": 0.XX}.\n'
+    "Sem texto adicional."
+)
 
 
 async def detect_anomalies() -> list[dict]:
@@ -43,7 +49,11 @@ async def detect_anomalies() -> list[dict]:
         if z > 2.0:
             anomalies.append({
                 "transacao_id": r["id"],
-                "motivo": f"Valor R${r['valor']:.2f} é {z:.1f}σ acima da média do cliente {r['cliente']} (R${mean:.2f})",
+                "motivo": (
+                    f"Valor R${r['valor']:.2f} é {z:.1f}σ "
+                    f"acima da média do cliente {r['cliente']} "
+                    f"(R${mean:.2f})"
+                ),
                 "score": round(min(z / 5, 1.0), 3),
                 "_raw": r,
             })
@@ -58,7 +68,10 @@ async def detect_anomalies() -> list[dict]:
             if r["id"] not in existing_ids:
                 anomalies.append({
                     "transacao_id": r["id"],
-                    "motivo": f"Transação atrasada de alto valor (R${r['valor']:.2f} > P75 R${p75:.2f})",
+                    "motivo": (
+                        f"Transação atrasada de alto valor "
+                        f"(R${r['valor']:.2f} > P75 R${p75:.2f})"
+                    ),
                     "score": round(min(r["valor"] / (p75 * 2), 1.0), 3),
                     "_raw": r,
                 })
@@ -67,10 +80,20 @@ async def detect_anomalies() -> list[dict]:
     anomalies = sorted(anomalies, key=lambda x: x["score"], reverse=True)[:10]
 
     if not anomalies or not settings.deepseek_api_key:
-        return [{"transacao_id": a["transacao_id"], "motivo": a["motivo"], "score": a["score"]} for a in anomalies]
+        return [
+            {
+                "transacao_id": a["transacao_id"],
+                "motivo": a["motivo"],
+                "score": a["score"],
+            }
+            for a in anomalies
+        ]
 
     # ── LLM contextualização ─────────────────────────────────────────────────
-    client = AsyncOpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
+    client = AsyncOpenAI(
+        api_key=settings.deepseek_api_key,
+        base_url=settings.deepseek_base_url,
+    )
     payload = [
         {
             "transacao_id": a["transacao_id"],
@@ -99,4 +122,11 @@ async def detect_anomalies() -> list[dict]:
         return enriched
     except Exception as exc:
         logger.warning("Anomaly LLM enrichment falhou: %s", exc)
-        return [{"transacao_id": a["transacao_id"], "motivo": a["motivo"], "score": a["score"]} for a in anomalies]
+        return [
+            {
+                "transacao_id": a["transacao_id"],
+                "motivo": a["motivo"],
+                "score": a["score"],
+            }
+            for a in anomalies
+        ]

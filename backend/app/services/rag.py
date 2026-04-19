@@ -1,12 +1,13 @@
 import json
 import logging
-import re
-import numpy as np
-import faiss
-import pandas as pd
 from pathlib import Path
+
+import faiss
+import numpy as np
+import pandas as pd
 from fastembed import TextEmbedding
 from openai import AsyncOpenAI
+
 from app.config import settings
 from app.db import get_db
 
@@ -24,15 +25,23 @@ _meta: list[dict] | None = None
 RAG_SYSTEM_PROMPT = """Você é um assistente de inteligência financeira.
 
 IMPORTANTE — CONTEXTO LIMITADO:
-Os dados abaixo são uma AMOSTRA semântica das transações mais relevantes para a pergunta (tipicamente 10-15 de {total_docs} transações totais no banco). NÃO são o dataset completo.
+Os dados abaixo são uma AMOSTRA semântica das transações mais relevantes
+para a pergunta (tipicamente 10-15 de {total_docs} transações totais no
+banco). NÃO são o dataset completo.
 
 Regras obrigatórias:
-1. NUNCA calcule ou afirme totais (receita total, contagem total, valor total) baseando-se nesta amostra — esses valores estarão errados.
-2. Para perguntas de agregação ("total", "quanto", "quantas", "maior cliente", "taxa de inadimplência"), oriente o usuário a usar o Dashboard ou informe que esses dados são do sistema de métricas.
-3. Para BUSCAS ESPECÍFICAS (detalhar uma transação, listar exemplos, descrever padrões), responda com base nos dados fornecidos.
+1. NUNCA calcule ou afirme totais (receita total, contagem total, valor
+   total) baseando-se nesta amostra — esses valores estarão errados.
+2. Para perguntas de agregação ("total", "quanto", "quantas", "maior
+   cliente", "taxa de inadimplência"), oriente o usuário a usar o
+   Dashboard ou informe que esses dados são do sistema de métricas.
+3. Para BUSCAS ESPECÍFICAS (detalhar uma transação, listar exemplos,
+   descrever padrões), responda com base nos dados fornecidos.
 4. Cite os IDs das transações relevantes (ex: txn_00001).
 5. Use formato monetário brasileiro (R$ X.XXX,XX).
-6. Se a pergunta for de agregação mas os dados foram pré-calculados do banco completo (virão marcados com [DADOS COMPLETOS]), confie neles e os apresente sem ressalvas."""
+6. Se a pergunta for de agregação mas os dados foram pré-calculados do
+   banco completo (virão marcados com [DADOS COMPLETOS]), confie neles
+   e os apresente sem ressalvas."""
 
 # ── Padrões de intenção agregada ──────────────────────────────────────────────
 # Perguntas que exigem dados do banco completo, não de amostra FAISS.
@@ -43,7 +52,7 @@ _AGGREGATE_PATTERNS: list[tuple[list[str], str]] = [
     # ── BY_CLIENT antes de OVERDUE para capturar "cliente com inadimplência" ─
     (["maior cliente", "top cliente", "maior faturador", "cliente com mais",
       "qual cliente tem", "ranking de client", "por cliente",
-      "qual cliente", "inadimpl"],                                           "by_client"),
+      "qual cliente", "inadimpl"],                               "by_client"),
     # ── OVERDUE: apenas sinais claros de status atrasado ─────────────────────
     (["atrasad", "vencid", "overdue", "em atraso"],                         "overdue"),
     # ── REVENUE ───────────────────────────────────────────────────────────────
@@ -93,7 +102,8 @@ def _answer_overdue() -> tuple[str, list[dict]]:
         return "Não há transações com status 'atrasado' no banco de dados.", []
 
     linhas = "\n".join(
-        f"• {r['id']} | {r['cliente']} | R${r['valor']:,.2f} | {r['data']} | {r['descricao'][:60]}"
+        f"• {r['id']} | {r['cliente']} | R${r['valor']:,.2f} | "
+        f"{r['data']} | {r['descricao'][:60]}"
         for r in top
     )
     answer = (
@@ -102,7 +112,9 @@ def _answer_overdue() -> tuple[str, list[dict]]:
         f"Valor total em atraso: R${soma:,.2f}\n\n"
         f"As {len(top)} de maior valor:\n{linhas}"
     )
-    sources = [{"id": r["id"], "descricao": r["descricao"], "relevance": 1.0} for r in top]
+    sources = [
+        {"id": r["id"], "descricao": r["descricao"], "relevance": 1.0} for r in top
+    ]
     return answer, sources
 
 
@@ -111,7 +123,8 @@ def _answer_revenue() -> tuple[str, list[dict]]:
     with get_db() as conn:
         r = conn.execute(
             """SELECT
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0) AS receita,
+                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)
+                    AS receita,
                 COALESCE(SUM(valor), 0) AS total_geral,
                 COUNT(*) AS total_txn,
                 SUM(CASE WHEN status='pago' THEN 1 ELSE 0 END) AS pagas,
@@ -133,10 +146,13 @@ def _answer_revenue() -> tuple[str, list[dict]]:
         f"Receita confirmada (status=pago): R${r['receita']:,.2f}\n"
         f"Volume total (todos os status): R${r['total_geral']:,.2f}\n"
         f"Total de transações: {r['total_txn']} "
-        f"({r['pagas']} pagas | {r['pendentes']} pendentes | {r['atrasadas']} atrasadas)\n\n"
+        f"({r['pagas']} pagas | {r['pendentes']} pendentes | "
+        f"{r['atrasadas']} atrasadas)\n\n"
         f"Maiores receitas individuais:\n{linhas}"
     )
-    sources = [{"id": r["id"], "descricao": r["descricao"], "relevance": 1.0} for r in top]
+    sources = [
+        {"id": r["id"], "descricao": r["descricao"], "relevance": 1.0} for r in top
+    ]
     return answer, sources
 
 
@@ -167,7 +183,9 @@ def _answer_pending() -> tuple[str, list[dict]]:
         f"Valor total pendente (a receber): R${soma:,.2f}\n\n"
         f"As {len(top)} de maior valor:\n{linhas}"
     )
-    sources = [{"id": r["id"], "descricao": r["descricao"], "relevance": 1.0} for r in top]
+    sources = [
+        {"id": r["id"], "descricao": r["descricao"], "relevance": 1.0} for r in top
+    ]
     return answer, sources
 
 
@@ -178,10 +196,12 @@ def _answer_by_client() -> tuple[str, list[dict]]:
             """SELECT
                 cliente,
                 COUNT(*) AS total,
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0) AS receita,
+                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)
+                    AS receita,
                 SUM(CASE WHEN status='atrasado' THEN 1 ELSE 0 END) AS atrasadas,
                 SUM(CASE WHEN status='pendente' THEN 1 ELSE 0 END) AS pendentes,
-                ROUND(CAST(SUM(CASE WHEN status='atrasado' THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) * 100, 1) AS taxa_inadimpl
+                ROUND(CAST(SUM(CASE WHEN status='atrasado' THEN 1 ELSE 0 END)
+                    AS FLOAT) / COUNT(*) * 100, 1) AS taxa_inadimpl
             FROM transacoes
             GROUP BY cliente
             ORDER BY receita DESC"""
@@ -191,12 +211,15 @@ def _answer_by_client() -> tuple[str, list[dict]]:
         return "Não há dados de clientes no banco.", []
 
     linhas = "\n".join(
-        f"• {r['cliente']}: {r['total']} txn | Receita: R${r['receita']:,.2f} "
-        f"| Atrasadas: {r['atrasadas']} ({r['taxa_inadimpl']}%) | Pendentes: {r['pendentes']}"
+        f"• {r['cliente']}: {r['total']} txn | "
+        f"Receita: R${r['receita']:,.2f} "
+        f"| Atrasadas: {r['atrasadas']} ({r['taxa_inadimpl']}%) "
+        f"| Pendentes: {r['pendentes']}"
         for r in rows
     )
     answer = (
-        f"[DADOS COMPLETOS DO BANCO] Ranking de clientes ({len(rows)} total):\n{linhas}"
+        f"[DADOS COMPLETOS DO BANCO] "
+        f"Ranking de clientes ({len(rows)} total):\n{linhas}"
     )
     sources = []
     return answer, sources
@@ -216,11 +239,16 @@ def _answer_extremes(question: str) -> tuple[str, list[dict]]:
         ).fetchall()
 
     linhas = "\n".join(
-        f"• {r['id']} | {r['cliente']} | R${r['valor']:,.2f} | {r['status']} | {r['data']}"
+        f"• {r['id']} | {r['cliente']} | R${r['valor']:,.2f} "
+        f"| {r['status']} | {r['data']}"
         for r in top
     )
-    answer = f"[DADOS COMPLETOS DO BANCO] As 10 transações de {label} valor:\n{linhas}"
-    sources = [{"id": r["id"], "descricao": r["descricao"], "relevance": 1.0} for r in top]
+    answer = (
+        f"[DADOS COMPLETOS DO BANCO] As 10 transações de {label} valor:\n{linhas}"
+    )
+    sources = [
+        {"id": r["id"], "descricao": r["descricao"], "relevance": 1.0} for r in top
+    ]
     return answer, sources
 
 
@@ -233,18 +261,26 @@ def _answer_rate() -> tuple[str, list[dict]]:
                 SUM(CASE WHEN status='atrasado' THEN 1 ELSE 0 END) AS atrasadas,
                 SUM(CASE WHEN status='pendente' THEN 1 ELSE 0 END) AS pendentes,
                 SUM(CASE WHEN status='pago' THEN 1 ELSE 0 END) AS pagas,
-                ROUND(CAST(SUM(CASE WHEN status='atrasado' THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) * 100, 2) AS taxa_inadimpl,
-                COALESCE(SUM(CASE WHEN status='atrasado' THEN valor ELSE 0 END), 0) AS valor_inadimpl,
+                ROUND(CAST(SUM(CASE WHEN status='atrasado' THEN 1 ELSE 0 END)
+                    AS FLOAT) / COUNT(*) * 100, 2) AS taxa_inadimpl,
+                COALESCE(SUM(CASE WHEN status='atrasado' THEN valor ELSE 0 END), 0)
+                    AS valor_inadimpl,
                 COALESCE(SUM(valor), 0) AS valor_total
             FROM transacoes"""
         ).fetchone()
 
+    pct_vol = (
+        round(r["valor_inadimpl"] / r["valor_total"] * 100, 2)
+        if r["valor_total"] else 0
+    )
     answer = (
         f"[DADOS COMPLETOS DO BANCO]\n"
-        f"Taxa de inadimplência: {r['taxa_inadimpl']}% ({r['atrasadas']} de {r['total']} transações)\n"
-        f"Valor em atraso: R${r['valor_inadimpl']:,.2f} de R${r['valor_total']:,.2f} "
-        f"({round(r['valor_inadimpl'] / r['valor_total'] * 100, 2) if r['valor_total'] else 0}% do volume)\n"
-        f"Distribuição: {r['pagas']} pagas | {r['pendentes']} pendentes | {r['atrasadas']} atrasadas"
+        f"Taxa de inadimplência: {r['taxa_inadimpl']}% "
+        f"({r['atrasadas']} de {r['total']} transações)\n"
+        f"Valor em atraso: R${r['valor_inadimpl']:,.2f} "
+        f"de R${r['valor_total']:,.2f} ({pct_vol}% do volume)\n"
+        f"Distribuição: {r['pagas']} pagas | {r['pendentes']} pendentes "
+        f"| {r['atrasadas']} atrasadas"
     )
     return answer, []
 
@@ -331,7 +367,8 @@ def build_faiss_index(df: pd.DataFrame) -> int:
     Path(settings.faiss_index_path).parent.mkdir(parents=True, exist_ok=True)
     faiss.write_index(index, settings.faiss_index_path)
 
-    meta = df[["id", "descricao", "cliente", "valor", "data", "status", "categoria"]].to_dict("records")
+    cols = ["id", "descricao", "cliente", "valor", "data", "status", "categoria"]
+    meta = df[cols].to_dict("records")
     with open(settings.faiss_meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, default=str)
 
@@ -344,7 +381,9 @@ def _load_index() -> tuple[faiss.Index, list[dict]]:
     global _index, _meta
     if _index is None:
         if not Path(settings.faiss_index_path).exists():
-            raise FileNotFoundError("FAISS index não encontrado. Faça upload de dados primeiro.")
+            raise FileNotFoundError(
+                "FAISS index não encontrado. Faça upload de dados primeiro."
+            )
         _index = faiss.read_index(settings.faiss_index_path)
         with open(settings.faiss_meta_path, "r", encoding="utf-8") as f:
             _meta = json.load(f)
@@ -372,15 +411,17 @@ def retrieve(question: str, k: int | None = None) -> list[dict]:
 # ── Fallback rule-based para busca específica (sem LLM) ───────────────────────
 
 def _rule_based_specific(question: str, sources: list[dict]) -> str:
-    """Resposta baseada em regras para buscas específicas — usa APENAS os sources recebidos.
-    Nunca extrapola para o dataset completo. Sempre deixa claro o escopo da amostra."""
+    """Resposta baseada em regras para buscas específicas.
+    Usa APENAS os sources recebidos, nunca extrapola para o dataset completo."""
     if not sources:
         return "Não encontrei transações relevantes para sua pergunta."
 
     n = len(sources)
     linhas = "\n".join(
-        f"• {s['id']} | {s.get('cliente','?')} | R${float(s.get('valor') or 0):,.2f}"
-        f" | {s.get('status','?')} | {s.get('data','N/A')} | {s.get('descricao','')[:70]}"
+        f"• {s['id']} | {s.get('cliente','?')} "
+        f"| R${float(s.get('valor') or 0):,.2f}"
+        f" | {s.get('status','?')} | {s.get('data','N/A')}"
+        f" | {s.get('descricao','')[:70]}"
         for s in sources[:10]
     )
     return (
@@ -400,7 +441,9 @@ async def answer_question(question: str) -> dict:
 
     # ── Ramo 1: Pergunta de agregação → banco completo ────────────────────────
     if intent:
-        logger.info("Intenção agregada detectada: %s — consultando banco completo.", intent)
+        logger.info(
+            "Intenção agregada detectada: %s — consultando banco completo.", intent
+        )
         answer_text, db_sources = _answer_aggregate(intent, question)
 
         # Com LLM: enriquece a apresentação mas com dados já corretos do banco
@@ -429,7 +472,9 @@ async def answer_question(question: str) -> dict:
                 logger.info("LLM formatou resposta agregada.")
                 return {"answer": llm_text, "sources": db_sources}
             except Exception as exc:
-                logger.warning("LLM falhou no ramo agregado, retornando dado bruto: %s", exc)
+                logger.warning(
+                    "LLM falhou no ramo agregado, retornando dado bruto: %s", exc
+                )
 
         return {"answer": answer_text, "sources": db_sources}
 
@@ -438,7 +483,10 @@ async def answer_question(question: str) -> dict:
     sources = retrieve(question)
 
     if not sources:
-        return {"answer": "Não encontrei transações relevantes para sua pergunta.", "sources": []}
+        return {
+            "answer": "Não encontrei transações relevantes para sua pergunta.",
+            "sources": [],
+        }
 
     # Conta total de docs no banco para informar o LLM
     try:
@@ -482,7 +530,11 @@ async def answer_question(question: str) -> dict:
     return {
         "answer": answer_text,
         "sources": [
-            {"id": s["id"], "descricao": s["descricao"], "relevance": round(s["_score"], 4)}
+            {
+                "id": s["id"],
+                "descricao": s["descricao"],
+                "relevance": round(s["_score"], 4),
+            }
             for s in sources
         ],
     }
