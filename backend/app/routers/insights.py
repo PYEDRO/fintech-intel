@@ -1,7 +1,9 @@
 import logging
+
 from fastapi import APIRouter, HTTPException
-from app.services.insights_gen import generate_insights
+
 from app.models.schemas import InsightsResponse
+from app.services.insights_gen import generate_insights
 
 router = APIRouter(prefix="/api", tags=["insights"])
 logger = logging.getLogger(__name__)
