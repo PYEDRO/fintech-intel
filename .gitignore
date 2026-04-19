@@ -25,6 +25,11 @@ ENV/
 *.env.local
 *.env.*.local
 
+# Firebase service account keys — NUNCA commitar chaves privadas
+*-firebase-adminsdk-*.json
+firebase-credentials*.json
+service-account*.json
+
 # Dados persistidos
 backend/data/*.db
 backend/data/*.index

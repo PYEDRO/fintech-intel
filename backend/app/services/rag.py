@@ -221,8 +221,7 @@ def _answer_by_client() -> tuple[str, list[dict]]:
         f"[DADOS COMPLETOS DO BANCO] "
         f"Ranking de clientes ({len(rows)} total):\n{linhas}"
     )
-    sources = []
-    return answer, sources
+    return answer, []
 
 
 def _answer_extremes(question: str) -> tuple[str, list[dict]]:
@@ -588,8 +587,7 @@ async def stream_answer_question(question: str):
         return
 
     try:
-        with get_db() as conn:
-            total_docs = conn.execute("SELECT COUNT(*) FROM transacoes").fetchone()[0]
+        total_docs = _get_total_count()
     except Exception:
         total_docs = "?"
 
@@ -621,13 +619,13 @@ async def stream_answer_question(question: str):
                 token = chunk.choices[0].delta.content
                 if token:
                     yield {"type": "token", "data": token}
-            logger.info("[Stream] LLM stream concluído.")
         except Exception as exc:
-            logger.exception("[Stream] LLM falhou, usando rule-based: %s", exc)
+            logger.exception("[Stream] LLM falhou — usando rule-based. Erro: %s", exc)
             fallback = _rule_based_specific(question, sources)
             for chunk in _text_chunks(fallback):
                 yield {"type": "token", "data": chunk}
     else:
+        logger.info("[Stream] DEEPSEEK_API_KEY ausente — usando rule-based.")
         fallback = _rule_based_specific(question, sources)
         for chunk in _text_chunks(fallback):
             yield {"type": "token", "data": chunk}

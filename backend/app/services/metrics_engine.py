@@ -162,15 +162,13 @@ def _compute_projection(conn, where: str, params: list) -> list[dict]:
     rows = list(reversed(rows))
     x = np.arange(len(rows), dtype=float)
     y = np.array([r["receita"] for r in rows], dtype=float)
-    coeffs = np.polyfit(x, y, 1)  # slope, intercept
+    coeffs = np.polyfit(x, y, 1)
 
-    # Generate next 3 months
     from datetime import datetime
     last_mes = rows[-1]["mes"]
     last_dt = datetime.strptime(last_mes, "%Y-%m")
     projection = []
     for i in range(1, 4):
-        # advance i months
         month = last_dt.month + i
         year = last_dt.year + (month - 1) // 12
         month = ((month - 1) % 12) + 1
@@ -179,5 +177,4 @@ def _compute_projection(conn, where: str, params: list) -> list[dict]:
             "mes": f"{year:04d}-{month:02d}",
             "receita_projetada": round(proj_val, 2),
         })
-
     return projection
