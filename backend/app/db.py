@@ -1,7 +1,8 @@
-import sqlite3
 import logging
+import sqlite3
 from contextlib import contextmanager
 from typing import Generator
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)

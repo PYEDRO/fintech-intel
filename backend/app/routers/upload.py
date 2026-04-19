@@ -1,7 +1,9 @@
 import logging
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from app.services.ingestion import process_upload
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+
 from app.models.schemas import UploadResponse
+from app.services.ingestion import process_upload
 
 router = APIRouter(prefix="/api", tags=["upload"])
 logger = logging.getLogger(__name__)

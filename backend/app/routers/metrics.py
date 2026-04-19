@@ -1,8 +1,10 @@
 import logging
 from typing import Optional
-from fastapi import APIRouter, Query, HTTPException
-from app.services.metrics_engine import get_metrics
+
+from fastapi import APIRouter, HTTPException, Query
+
 from app.models.schemas import MetricsResponse
+from app.services.metrics_engine import get_metrics
 
 router = APIRouter(prefix="/api", tags=["metrics"])
 logger = logging.getLogger(__name__)

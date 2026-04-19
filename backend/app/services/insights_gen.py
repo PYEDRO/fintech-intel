@@ -1,14 +1,17 @@
 import json
 import logging
+
 from openai import AsyncOpenAI
+
 from app.config import settings
 from app.db import get_db
-from app.services.metrics_engine import get_metrics
 from app.services.anomaly import detect_anomalies
+from app.services.metrics_engine import get_metrics
 
 logger = logging.getLogger(__name__)
 
-INSIGHTS_SYSTEM_PROMPT = """Você é um analista financeiro sênior. Analise as métricas fornecidas e gere insights acionáveis.
+INSIGHTS_SYSTEM_PROMPT = """Você é um analista financeiro sênior.
+Analise as métricas fornecidas e gere insights acionáveis.
 Para cada insight, forneça:
 - Título curto e direto
 - Descrição com dados concretos (valores, percentuais)
@@ -33,7 +36,8 @@ async def generate_insights() -> dict:
     # Top 5 highest transactions
     with get_db() as conn:
         top5 = conn.execute(
-            "SELECT id, cliente, valor, status, descricao FROM transacoes ORDER BY valor DESC LIMIT 5"
+            "SELECT id, cliente, valor, status, descricao "
+            "FROM transacoes ORDER BY valor DESC LIMIT 5"
         ).fetchall()
         clients_stats = conn.execute(
             """
@@ -65,22 +69,36 @@ async def generate_insights() -> dict:
     fallback_insights = [
         {
             "titulo": "Dados carregados com sucesso",
-            "descricao": f"Total de {metrics['total_transacoes']} transações. Receita total: R${metrics['receita_total']:,.2f}. Taxa de inadimplência: {metrics['taxa_inadimplencia']}%.",
+            "descricao": (
+                f"Total de {metrics['total_transacoes']} transações. "
+                f"Receita total: R${metrics['receita_total']:,.2f}. "
+                f"Taxa de inadimplência: {metrics['taxa_inadimplencia']}%."
+            ),
             "tipo": "tendencia",
             "severidade": "baixa",
         }
     ]
 
     if not settings.deepseek_api_key:
-        return {"insights": fallback_insights, "anomalias": anomalias, "score_clientes": _compute_client_scores_local(clients_stats)}
+        return {
+            "insights": fallback_insights,
+            "anomalias": anomalias,
+            "score_clientes": _compute_client_scores_local(clients_stats),
+        }
 
-    client = AsyncOpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
+    client = AsyncOpenAI(
+        api_key=settings.deepseek_api_key,
+        base_url=settings.deepseek_base_url,
+    )
     try:
         resp = await client.chat.completions.create(
             model=settings.deepseek_model,
             messages=[
                 {"role": "system", "content": INSIGHTS_SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
+                {
+                    "role": "user",
+                    "content": json.dumps(payload, ensure_ascii=False, default=str),
+                },
             ],
             temperature=0.3,
             max_tokens=2048,
@@ -92,7 +110,9 @@ async def generate_insights() -> dict:
         return {
             "insights": result.get("insights", fallback_insights),
             "anomalias": anomalias,
-            "score_clientes": result.get("score_clientes", _compute_client_scores_local(clients_stats)),
+            "score_clientes": result.get(
+                "score_clientes", _compute_client_scores_local(clients_stats)
+            ),
         }
     except Exception as exc:
         logger.exception("Insights generation falhou: %s", exc)
@@ -117,6 +137,9 @@ def _compute_client_scores_local(clients_stats) -> list[dict]:
             "cliente": r["cliente"],
             "score": round(score, 1),
             "risco": risco,
-            "motivo": f"Taxa inadimplência: {inadimplencia_rate*100:.1f}%, Ticket médio: R${ticket:.2f}",
+            "motivo": (
+                f"Taxa inadimplência: {inadimplencia_rate*100:.1f}%, "
+                f"Ticket médio: R${ticket:.2f}"
+            ),
         })
     return results
