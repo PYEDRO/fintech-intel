@@ -51,6 +51,11 @@ class CategoryMetric(BaseModel):
     count: int
 
 
+class ProjectionPoint(BaseModel):
+    mes: str
+    receita_projetada: float
+
+
 class MetricsResponse(BaseModel):
     receita_total: float
     ticket_medio: float
@@ -63,6 +68,7 @@ class MetricsResponse(BaseModel):
     por_cliente: List[ClientMetric]
     por_categoria: List[CategoryMetric]
     por_status: dict
+    projecao_fluxo: Optional[List[ProjectionPoint]] = None
 
 
 # ─── Insights ─────────────────────────────────────────────────────────────────

@@ -31,7 +31,8 @@ class Settings(BaseSettings):
         return v
 
     class Config:
-        env_file = ".env"
+        # Suporta execução de dentro de backend/ (dev local) ou da raiz (Docker/CI)
+        env_file = (".env", "../.env")
         extra = "ignore"
 
 

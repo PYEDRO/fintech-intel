@@ -28,6 +28,42 @@ Classifique cada transação em EXATAMENTE UMA categoria:
 Responda APENAS com um JSON array no formato: ["categoria1", "categoria2", ...]
 Sem explicações adicionais."""
 
+# Keyword fallback — used when no LLM API key is configured.
+# Keys are CATEGORIES; values are lowercase tokens matched against descricao.
+_KEYWORD_MAP: dict[str, list[str]] = {
+    "Assinatura Recorrente": [
+        "assinatura", "recorrente", "mensal", "monthly", "subscription", "assinar",
+    ],
+    "Plano Premium": [
+        "premium", "plano", "plan", "pro ",
+    ],
+    "Licença Anual": [
+        "licenca", "licença", "anual", "yearly", "annual", "license", "licence",
+    ],
+    "Contratação Premium": [
+        "contratacao", "contratação", "enterprise", "corporativo", "corporate",
+    ],
+    "Cobrança Recorrente": [
+        "cobranca", "cobrança", "billing", "fatura", "recorrencia", "recorrência",
+    ],
+    "Compra Única": [
+        "compra unica", "compra única", "one-time", "avulso", "pontual",
+    ],
+    "Serviço Avulso": [
+        "servico", "serviço", "avulso", "service", "suporte", "consultoria",
+    ],
+}
+
+
+def _classify_by_keyword(description: str) -> str:
+    """Rule-based fallback classification when no LLM key is available."""
+    desc_lower = description.lower()
+    for category, keywords in _KEYWORD_MAP.items():
+        if any(kw in desc_lower for kw in keywords):
+            return category
+    # Default to most generic category rather than "Não Classificado"
+    return "Serviço Avulso"
+
 
 def _get_client() -> AsyncOpenAI:
     return AsyncOpenAI(
@@ -39,7 +75,8 @@ def _get_client() -> AsyncOpenAI:
 async def _classify_batch(descriptions: List[str]) -> List[str]:
     """Send one batch of descriptions to DeepSeek and parse categories."""
     if not settings.deepseek_api_key:
-        return ["Não Classificado"] * len(descriptions)
+        logger.info("DeepSeek API key not set — using keyword-based fallback classifier.")
+        return [_classify_by_keyword(d) for d in descriptions]
 
     client = _get_client()
     numbered = "\n".join(f"{i+1}. {d}" for i, d in enumerate(descriptions))
@@ -64,8 +101,8 @@ async def _classify_batch(descriptions: List[str]) -> List[str]:
             raise ValueError("Unexpected response shape")
         return [c if c in CATEGORIES else "Não Classificado" for c in categories]
     except Exception as exc:
-        logger.warning("Classificação falhou para batch: %s", exc)
-        return ["Não Classificado"] * len(descriptions)
+        logger.warning("Classificação LLM falhou para batch: %s — usando fallback por keyword.", exc)
+        return [_classify_by_keyword(d) for d in descriptions]
 
 
 async def classify_descriptions_batch(descriptions: List[str]) -> List[str]:
