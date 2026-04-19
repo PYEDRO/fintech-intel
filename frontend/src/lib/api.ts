@@ -106,11 +106,37 @@ export interface ChatResponse {
   sources: ChatSource[];
 }
 
+// Upload assíncrono
+export interface UploadJobResponse {
+  job_id: string;
+  status: "queued";
+  message: string;
+}
+
+export interface UploadStatusData {
+  job_id: string;
+  status: "queued" | "processing" | "done" | "error";
+  progress: number;
+  step: string;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+}
+
+// Mantido para compatibilidade com testes / código legado
 export interface UploadResponse {
   total_rows: number;
   classified: number;
   indexed: number;
   metrics_summary: Record<string, unknown>;
+}
+
+// Callbacks para streaming
+export interface StreamCallbacks {
+  onToken: (token: string) => void;
+  onSources: (sources: ChatSource[]) => void;
+  onDone: () => void;
+  onError?: (message: string) => void;
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
@@ -142,13 +168,78 @@ export const api = {
 
   getInsights: () => fetcher<InsightsData>("/api/insights"),
 
+  // ── Chat JSON (LangGraph, sem streaming) ─────────────────────────────────────
   chat: (question: string) =>
     fetcher<ChatResponse>("/api/chat", {
       method: "POST",
       body: JSON.stringify({ question }),
     }),
 
-  upload: async (file: File): Promise<UploadResponse> => {
+  // ── Chat Streaming (SSE via fetch + ReadableStream) ───────────────────────
+  chatStream: async (question: string, callbacks: StreamCallbacks): Promise<void> => {
+    const response = await fetch(`${BASE_URL}/api/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(err.detail ?? "Stream request failed");
+    }
+
+    if (!response.body) {
+      throw new Error("Resposta sem corpo — streaming não suportado.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE: eventos separados por \n\n
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() ?? ""; // Mantém bloco incompleto no buffer
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        // Cada linha do bloco com "data: " prefixo
+        const dataLine = block
+          .split("\n")
+          .find((l) => l.startsWith("data: "));
+        if (!dataLine) continue;
+
+        try {
+          const payload = JSON.parse(dataLine.slice(6));
+          switch (payload.type) {
+            case "token":
+              callbacks.onToken(payload.data as string);
+              break;
+            case "sources":
+              callbacks.onSources(payload.data as ChatSource[]);
+              break;
+            case "done":
+              callbacks.onDone();
+              break;
+            case "error":
+              callbacks.onError?.(payload.data as string);
+              callbacks.onDone();
+              break;
+          }
+        } catch {
+          // Ignora eventos malformados
+        }
+      }
+    }
+  },
+
+  // ── Upload assíncrono ──────────────────────────────────────────────────────
+  upload: async (file: File): Promise<UploadJobResponse> => {
     const form = new FormData();
     form.append("file", file);
     const res = await fetch(`${BASE_URL}/api/upload`, { method: "POST", body: form });
@@ -158,4 +249,8 @@ export const api = {
     }
     return res.json();
   },
+
+  // ── Polling de status do job de upload ────────────────────────────────────
+  getUploadStatus: (jobId: string) =>
+    fetcher<UploadStatusData>(`/api/upload/status/${jobId}`),
 };

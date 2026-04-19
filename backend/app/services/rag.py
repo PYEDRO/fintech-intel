@@ -486,3 +486,98 @@ async def answer_question(question: str) -> dict:
             for s in sources
         ],
     }
+
+
+# ── Streaming (SSE) ───────────────────────────────────────────────────────────
+
+def _text_chunks(text: str, size: int = 40) -> list[str]:
+    """Divide texto em chunks para simular streaming em respostas determinísticas."""
+    return [text[i : i + size] for i in range(0, len(text), size)]
+
+
+async def stream_answer_question(question: str):
+    """
+    Async generator que produz eventos SSE para o endpoint /api/chat/stream.
+
+    Protocolo de eventos:
+      {"type": "sources", "data": [...]}   ← enviado primeiro (FAISS ou DB)
+      {"type": "token",   "data": "..."}   ← tokens LLM (ou chunks simulados)
+      {"type": "done",    "data": ""}      ← sinaliza fim do stream
+    """
+    intent = _detect_aggregate_intent(question)
+
+    # ── Ramo SQL: dados do banco completo ─────────────────────────────────────
+    if intent:
+        logger.info("[Stream] intenção agregada: %s", intent)
+        answer, db_sources = _answer_aggregate(intent, question)
+
+        yield {"type": "sources", "data": db_sources}
+
+        # Simula streaming do texto já pronto em chunks
+        for chunk in _text_chunks(answer):
+            yield {"type": "token", "data": chunk}
+
+        yield {"type": "done", "data": ""}
+        return
+
+    # ── Ramo Semântico: FAISS + LLM com streaming real ────────────────────────
+    logger.info("[Stream] busca semântica para: %r", question[:60])
+    sources = retrieve(question)
+
+    formatted_sources = [
+        {"id": s["id"], "descricao": s["descricao"], "relevance": round(s["_score"], 4)}
+        for s in sources
+    ]
+    yield {"type": "sources", "data": formatted_sources}
+
+    if not sources:
+        yield {"type": "token", "data": "Não encontrei transações relevantes para sua pergunta."}
+        yield {"type": "done", "data": ""}
+        return
+
+    try:
+        with get_db() as conn:
+            total_docs = conn.execute("SELECT COUNT(*) FROM transacoes").fetchone()[0]
+    except Exception:
+        total_docs = "?"
+
+    context = "\n".join(_doc_text(s) for s in sources)
+    user_msg = (
+        f"Amostra semântica ({len(sources)} de {total_docs} transações totais):\n"
+        f"{context}\n\nPergunta: {question}"
+    )
+
+    if settings.deepseek_api_key:
+        try:
+            client = AsyncOpenAI(
+                api_key=settings.deepseek_api_key,
+                base_url=settings.deepseek_base_url,
+            )
+            prompt = RAG_SYSTEM_PROMPT.format(total_docs=total_docs)
+            # stream=True → tokens gerados incrementalmente pela API
+            stream = await client.chat.completions.create(
+                model=settings.deepseek_model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": user_msg},
+                ],
+                temperature=0.2,
+                max_tokens=1024,
+                stream=True,
+            )
+            async for chunk in stream:
+                token = chunk.choices[0].delta.content
+                if token:
+                    yield {"type": "token", "data": token}
+            logger.info("[Stream] LLM stream concluído.")
+        except Exception as exc:
+            logger.exception("[Stream] LLM falhou, usando rule-based: %s", exc)
+            fallback = _rule_based_specific(question, sources)
+            for chunk in _text_chunks(fallback):
+                yield {"type": "token", "data": chunk}
+    else:
+        fallback = _rule_based_specific(question, sources)
+        for chunk in _text_chunks(fallback):
+            yield {"type": "token", "data": chunk}
+
+    yield {"type": "done", "data": ""}

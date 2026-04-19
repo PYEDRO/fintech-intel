@@ -1,3 +1,10 @@
+"""
+Pipeline de ingestão de dados financeiros.
+
+Suporta dois modos:
+- process_upload(file)          → síncrono, para chamadas diretas (testes, compat)
+- process_upload_background(...)→ assíncrono com job_store, para BackgroundTasks
+"""
 import io
 import logging
 import asyncio
@@ -5,15 +12,16 @@ from typing import Optional
 import pandas as pd
 from fastapi import UploadFile, HTTPException
 from app.db import get_db
-from app.config import settings
 from app.services.classifier import classify_descriptions_batch
 from app.services.rag import build_faiss_index
 
 logger = logging.getLogger(__name__)
 
 
+# ── Limpeza e normalização do DataFrame ───────────────────────────────────────
+
 def _clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize column names, cast types, drop nulls on required fields."""
+    """Normaliza colunas, tipos e descarta linhas inválidas."""
     df.columns = [c.strip().lower() for c in df.columns]
 
     required = {"id", "valor", "data", "status", "cliente", "descricao"}
@@ -31,7 +39,6 @@ def _clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     df["descricao"] = df["descricao"].str.strip()
     df["data"] = df["data"].dt.strftime("%Y-%m-%d")
 
-    # Normalize status variants
     status_map = {"paid": "pago", "pending": "pendente", "overdue": "atrasado"}
     df["status"] = df["status"].replace(status_map)
 
@@ -41,47 +48,62 @@ def _clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-async def process_upload(file: UploadFile) -> dict:
-    """Full ingestion pipeline: read → clean → persist → classify → embed."""
-    filename = file.filename or ""
-    contents = await file.read()
-    buf = io.BytesIO(contents)
+# ── Pipeline interno (bytes → result dict) ─────────────────────────────────────
 
+async def _run_pipeline(
+    contents: bytes,
+    filename: str,
+    progress_cb=None,  # Callable[[int, str], Awaitable[None]] | None
+) -> dict:
+    """
+    Executa o pipeline completo sobre bytes de arquivo.
+
+    progress_cb(progress_pct, step_label) é chamado ao longo do processo
+    para atualizar o job_store. Se None, opera silenciosamente.
+    """
+
+    async def _update(pct: int, step: str):
+        if progress_cb:
+            await progress_cb(pct, step)
+
+    # ── 1. Parse ──────────────────────────────────────────────────────────────
+    await _update(5, "Lendo arquivo...")
+    buf = io.BytesIO(contents)
     try:
-        if filename.endswith(".xlsx") or filename.endswith(".xls"):
+        if filename.endswith((".xlsx", ".xls")):
             df = pd.read_excel(buf)
         elif filename.endswith(".csv"):
             df = pd.read_csv(buf)
         else:
-            raise HTTPException(status_code=400, detail="Formato não suportado. Envie .xlsx ou .csv")
-    except HTTPException:
+            raise ValueError("Formato não suportado. Envie .xlsx ou .csv")
+    except ValueError:
         raise
     except Exception as exc:
-        logger.exception("Falha ao ler arquivo: %s", exc)
-        raise HTTPException(status_code=422, detail=f"Erro ao processar arquivo: {exc}")
+        raise ValueError(f"Erro ao processar arquivo: {exc}") from exc
 
-    try:
-        df = _clean_dataframe(df)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-
+    # ── 2. Limpeza ────────────────────────────────────────────────────────────
+    await _update(15, "Limpando e validando dados...")
+    df = _clean_dataframe(df)
     total_rows = len(df)
-    logger.info("Linhas lidas após limpeza: %d", total_rows)
+    logger.info("Linhas após limpeza: %d", total_rows)
 
-    # ── Persist raw to SQLite ─────────────────────────────────────────────────
+    # ── 3. Persist SQLite ─────────────────────────────────────────────────────
+    await _update(25, "Salvando no banco de dados...")
     with get_db() as conn:
         conn.execute("DELETE FROM transacoes")
         df[["id", "valor", "data", "status", "cliente", "descricao", "categoria"]].to_sql(
             "transacoes", conn, if_exists="append", index=False
         )
-    logger.info("Transações persistidas no SQLite")
+    logger.info("Transações persistidas no SQLite.")
 
-    # ── LLM Classification (batches of 20) ────────────────────────────────────
+    # ── 4. Classificação LLM ──────────────────────────────────────────────────
+    await _update(40, "Classificando transações com IA...")
     descriptions = df["descricao"].tolist()
     categories = await classify_descriptions_batch(descriptions)
     df["categoria"] = categories
     classified = sum(1 for c in categories if c != "Não Classificado")
 
+    await _update(70, "Salvando categorias...")
     with get_db() as conn:
         for _, row in df.iterrows():
             conn.execute(
@@ -90,11 +112,13 @@ async def process_upload(file: UploadFile) -> dict:
             )
     logger.info("Categorias salvas: %d/%d", classified, total_rows)
 
-    # ── FAISS Indexing ────────────────────────────────────────────────────────
+    # ── 5. FAISS Indexing ─────────────────────────────────────────────────────
+    await _update(80, "Indexando vetores semânticos...")
     indexed = build_faiss_index(df)
-    logger.info("FAISS index construído: %d vetores", indexed)
+    logger.info("FAISS index construído: %d vetores.", indexed)
 
-    # ── Quick metrics summary ─────────────────────────────────────────────────
+    # ── 6. Resumo ─────────────────────────────────────────────────────────────
+    await _update(95, "Finalizando...")
     metrics_summary = {
         "receita_total": round(df[df["status"] == "pago"]["valor"].sum(), 2),
         "total_transacoes": total_rows,
@@ -108,3 +132,59 @@ async def process_upload(file: UploadFile) -> dict:
         "indexed": indexed,
         "metrics_summary": metrics_summary,
     }
+
+
+# ── Função de background task (chamada por upload.py) ─────────────────────────
+
+async def process_upload_background(
+    contents: bytes,
+    filename: str,
+    job_id: str,
+) -> None:
+    """
+    Executa o pipeline em background, atualizando o job_store ao longo do processo.
+    Nunca propaga exceções — erros ficam registrados no job.
+    """
+    from app.services.job_store import job_store
+
+    async def cb(pct: int, step: str):
+        await job_store.update(job_id, status="processing", progress=pct, step=step)
+
+    try:
+        await job_store.update(job_id, status="processing", progress=1, step="Iniciando...")
+        result = await _run_pipeline(contents, filename, progress_cb=cb)
+        await job_store.update(
+            job_id,
+            status="done",
+            progress=100,
+            step="Processamento concluído!",
+            result=result,
+        )
+        logger.info("Job %s concluído: %d linhas.", job_id, result["total_rows"])
+    except Exception as exc:
+        logger.exception("Job %s falhou: %s", job_id, exc)
+        await job_store.update(
+            job_id,
+            status="error",
+            progress=0,
+            step="Erro no processamento.",
+            error=str(exc),
+        )
+
+
+# ── Compatibilidade: mantém process_upload para uso direto (testes) ───────────
+
+async def process_upload(file: UploadFile) -> dict:
+    """API legada: aceita UploadFile diretamente (usada nos testes)."""
+    filename = file.filename or ""
+    if not filename:
+        raise HTTPException(status_code=400, detail="Arquivo inválido")
+
+    contents = await file.read()
+    try:
+        return await _run_pipeline(contents, filename, progress_cb=None)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.exception("process_upload falhou: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))

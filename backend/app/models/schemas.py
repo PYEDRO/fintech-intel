@@ -1,15 +1,35 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Any
 from datetime import date
 
 
-# ─── Upload ───────────────────────────────────────────────────────────────────
+# ─── Upload (síncrono — mantido para compatibilidade com testes) ──────────────
 
 class UploadResponse(BaseModel):
     total_rows: int
     classified: int
     indexed: int
     metrics_summary: dict
+
+
+# ─── Upload Assíncrono (BackgroundTasks) ──────────────────────────────────────
+
+class UploadJobResponse(BaseModel):
+    """Retornado imediatamente ao aceitar o arquivo para processamento."""
+    job_id: str
+    status: Literal["queued"]
+    message: str
+
+
+class UploadStatusResponse(BaseModel):
+    """Estado atual do job de processamento, retornado pelo endpoint de polling."""
+    job_id: str
+    status: Literal["queued", "processing", "done", "error"]
+    progress: int = Field(ge=0, le=100, description="Percentual de progresso (0-100)")
+    step: str = Field(description="Descrição da etapa atual")
+    result: Optional[dict] = None   # Preenchido quando status='done'
+    error: Optional[str] = None     # Preenchido quando status='error'
+    created_at: str
 
 
 # ─── Transactions ─────────────────────────────────────────────────────────────
