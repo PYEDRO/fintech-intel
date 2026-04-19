@@ -1,7 +1,9 @@
 import logging
+
 from fastapi import APIRouter, HTTPException
-from app.services.rag import answer_question
+
 from app.models.schemas import ChatRequest, ChatResponse
+from app.services.rag import answer_question
 
 router = APIRouter(prefix="/api", tags=["chat"])
 logger = logging.getLogger(__name__)

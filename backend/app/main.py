@@ -1,9 +1,11 @@
 import logging
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.db import init_db
-from app.routers import upload, metrics, transactions, insights, chat
+from app.routers import chat, insights, metrics, transactions, upload
 
 logging.basicConfig(
     level=logging.INFO,

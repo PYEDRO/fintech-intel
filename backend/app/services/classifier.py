@@ -1,7 +1,9 @@
 import json
 import logging
 from typing import List
+
 from openai import AsyncOpenAI
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -75,7 +77,9 @@ def _get_client() -> AsyncOpenAI:
 async def _classify_batch(descriptions: List[str]) -> List[str]:
     """Send one batch of descriptions to DeepSeek and parse categories."""
     if not settings.deepseek_api_key:
-        logger.info("DeepSeek API key not set — using keyword-based fallback classifier.")
+        logger.info(
+            "DeepSeek API key not set — using keyword-based fallback classifier."
+        )
         return [_classify_by_keyword(d) for d in descriptions]
 
     client = _get_client()
@@ -101,7 +105,9 @@ async def _classify_batch(descriptions: List[str]) -> List[str]:
             raise ValueError("Unexpected response shape")
         return [c if c in CATEGORIES else "Não Classificado" for c in categories]
     except Exception as exc:
-        logger.warning("Classificação LLM falhou para batch: %s — usando fallback por keyword.", exc)
+        logger.warning(
+            "Classificação LLM falhou: %s — usando fallback por keyword.", exc
+        )
         return [_classify_by_keyword(d) for d in descriptions]
 
 
