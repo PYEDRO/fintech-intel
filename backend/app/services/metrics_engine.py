@@ -1,5 +1,6 @@
 import logging
 from typing import Optional
+
 from app.db import get_db
 
 logger = logging.getLogger(__name__)
@@ -36,12 +37,17 @@ def get_metrics(
         row = conn.execute(
             f"""
             SELECT
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)  AS receita_total,
-                COALESCE(AVG(CASE WHEN status='pago' THEN valor END), 0)          AS ticket_medio,
-                COUNT(*)                                                           AS total_transacoes,
-                COALESCE(SUM(CASE WHEN status='pago'      THEN 1 ELSE 0 END), 0) AS pagas,
-                COALESCE(SUM(CASE WHEN status='pendente'  THEN 1 ELSE 0 END), 0) AS pendentes,
-                COALESCE(SUM(CASE WHEN status='atrasado'  THEN 1 ELSE 0 END), 0) AS atrasadas
+                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)
+                    AS receita_total,
+                COALESCE(AVG(CASE WHEN status='pago' THEN valor END), 0)
+                    AS ticket_medio,
+                COUNT(*) AS total_transacoes,
+                COALESCE(SUM(CASE WHEN status='pago' THEN 1 ELSE 0 END), 0)
+                    AS pagas,
+                COALESCE(SUM(CASE WHEN status='pendente' THEN 1 ELSE 0 END), 0)
+                    AS pendentes,
+                COALESCE(SUM(CASE WHEN status='atrasado' THEN 1 ELSE 0 END), 0)
+                    AS atrasadas
             FROM transacoes {where}
             """,
             params,
@@ -55,9 +61,10 @@ def get_metrics(
         evolucao_rows = conn.execute(
             f"""
             SELECT
-                strftime('%Y-%m', data)                                         AS mes,
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0) AS receita,
-                COUNT(*)                                                         AS count
+                strftime('%Y-%m', data) AS mes,
+                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)
+                    AS receita,
+                COUNT(*) AS count
             FROM transacoes {where}
             GROUP BY mes
             ORDER BY mes
@@ -70,7 +77,8 @@ def get_metrics(
             f"""
             SELECT
                 cliente,
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0) AS receita,
+                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)
+                    AS receita,
                 COUNT(*) AS count
             FROM transacoes {where}
             GROUP BY cliente
@@ -83,8 +91,9 @@ def get_metrics(
         cat_rows = conn.execute(
             f"""
             SELECT
-                COALESCE(categoria, 'Não Classificado')                          AS categoria,
-                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)  AS receita,
+                COALESCE(categoria, 'Não Classificado') AS categoria,
+                COALESCE(SUM(CASE WHEN status='pago' THEN valor ELSE 0 END), 0)
+                    AS receita,
                 COUNT(*) AS count
             FROM transacoes {where}
             GROUP BY categoria
@@ -109,11 +118,19 @@ def get_metrics(
             for r in evolucao_rows
         ],
         "por_cliente": [
-            {"cliente": r["cliente"], "receita": round(r["receita"], 2), "count": r["count"]}
+            {
+                "cliente": r["cliente"],
+                "receita": round(r["receita"], 2),
+                "count": r["count"],
+            }
             for r in cliente_rows
         ],
         "por_categoria": [
-            {"categoria": r["categoria"], "receita": round(r["receita"], 2), "count": r["count"]}
+            {
+                "categoria": r["categoria"],
+                "receita": round(r["receita"], 2),
+                "count": r["count"],
+            }
             for r in cat_rows
         ],
         "por_status": {
@@ -148,17 +165,20 @@ def _compute_projection(conn, where: str, params: list) -> list[dict]:
     coeffs = np.polyfit(x, y, 1)  # slope, intercept
 
     # Generate next 3 months
-    from datetime import datetime, timedelta
+    from datetime import datetime
+
     last_mes = rows[-1]["mes"]
     last_dt = datetime.strptime(last_mes, "%Y-%m")
     projection = []
     for i in range(1, 4):
-        next_dt = last_dt.replace(day=1)
         # advance i months
         month = last_dt.month + i
         year = last_dt.year + (month - 1) // 12
         month = ((month - 1) % 12) + 1
         proj_val = max(0.0, float(np.polyval(coeffs, len(rows) - 1 + i)))
-        projection.append({"mes": f"{year:04d}-{month:02d}", "receita_projetada": round(proj_val, 2)})
+        projection.append({
+            "mes": f"{year:04d}-{month:02d}",
+            "receita_projetada": round(proj_val, 2),
+        })
 
     return projection

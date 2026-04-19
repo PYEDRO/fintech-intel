@@ -1,16 +1,22 @@
 import json
 import logging
+from collections import defaultdict
+
 import numpy as np
-from typing import Any
 from openai import AsyncOpenAI
-from app.db import get_db
+
 from app.config import settings
+from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
-ANOMALY_SYSTEM_PROMPT = """Você é um analista de risco financeiro. Dado um conjunto de transações anômalas detectadas estatisticamente, forneça uma contextualização breve e objetiva para cada uma.
-Retorne APENAS um JSON array com objetos {"transacao_id": "...", "motivo": "...", "score": 0.XX}.
-Sem texto adicional."""
+ANOMALY_SYSTEM_PROMPT = (
+    "Você é um analista de risco financeiro. Dado um conjunto de transações anômalas"
+    " detectadas estatisticamente, forneça uma contextualização breve e objetiva para"
+    " cada uma.\n"
+    'Retorne APENAS um JSON array com objetos {"transacao_id": "...", "motivo": "...",'
+    ' "score": 0.XX}.\nSem texto adicional.'
+)
 
 
 async def detect_anomalies() -> list[dict]:
@@ -26,7 +32,6 @@ async def detect_anomalies() -> list[dict]:
     records = [dict(r) for r in rows]
 
     # ── Z-score per client ────────────────────────────────────────────────────
-    from collections import defaultdict
     client_values: defaultdict[str, list[float]] = defaultdict(list)
     for r in records:
         client_values[r["cliente"]].append(r["valor"])
@@ -41,9 +46,13 @@ async def detect_anomalies() -> list[dict]:
             continue
         z = abs(r["valor"] - mean) / std
         if z > 2.0:
+            motivo = (
+                f"Valor R${r['valor']:.2f} é {z:.1f}σ acima da média"
+                f" do cliente {r['cliente']} (R${mean:.2f})"
+            )
             anomalies.append({
                 "transacao_id": r["id"],
-                "motivo": f"Valor R${r['valor']:.2f} é {z:.1f}σ acima da média do cliente {r['cliente']} (R${mean:.2f})",
+                "motivo": motivo,
                 "score": round(min(z / 5, 1.0), 3),
                 "_raw": r,
             })
@@ -56,9 +65,13 @@ async def detect_anomalies() -> list[dict]:
             # avoid duplicating
             existing_ids = {a["transacao_id"] for a in anomalies}
             if r["id"] not in existing_ids:
+                motivo = (
+                    f"Transação atrasada de alto valor"
+                    f" (R${r['valor']:.2f} > P75 R${p75:.2f})"
+                )
                 anomalies.append({
                     "transacao_id": r["id"],
-                    "motivo": f"Transação atrasada de alto valor (R${r['valor']:.2f} > P75 R${p75:.2f})",
+                    "motivo": motivo,
                     "score": round(min(r["valor"] / (p75 * 2), 1.0), 3),
                     "_raw": r,
                 })
@@ -67,10 +80,20 @@ async def detect_anomalies() -> list[dict]:
     anomalies = sorted(anomalies, key=lambda x: x["score"], reverse=True)[:10]
 
     if not anomalies or not settings.deepseek_api_key:
-        return [{"transacao_id": a["transacao_id"], "motivo": a["motivo"], "score": a["score"]} for a in anomalies]
+        return [
+            {
+                "transacao_id": a["transacao_id"],
+                "motivo": a["motivo"],
+                "score": a["score"],
+            }
+            for a in anomalies
+        ]
 
     # ── LLM contextualização ─────────────────────────────────────────────────
-    client = AsyncOpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
+    client = AsyncOpenAI(
+        api_key=settings.deepseek_api_key,
+        base_url=settings.deepseek_base_url,
+    )
     payload = [
         {
             "transacao_id": a["transacao_id"],
@@ -99,4 +122,11 @@ async def detect_anomalies() -> list[dict]:
         return enriched
     except Exception as exc:
         logger.warning("Anomaly LLM enrichment falhou: %s", exc)
-        return [{"transacao_id": a["transacao_id"], "motivo": a["motivo"], "score": a["score"]} for a in anomalies]
+        return [
+            {
+                "transacao_id": a["transacao_id"],
+                "motivo": a["motivo"],
+                "score": a["score"],
+            }
+            for a in anomalies
+        ]

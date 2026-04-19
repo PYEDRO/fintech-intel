@@ -1,13 +1,14 @@
 import json
 import logging
-import numpy as np
-import faiss
-import pandas as pd
 from pathlib import Path
+
+import faiss
+import numpy as np
+import pandas as pd
 from fastembed import TextEmbedding
 from openai import AsyncOpenAI
+
 from app.config import settings
-from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +17,18 @@ _model: TextEmbedding | None = None
 _index: faiss.Index | None = None
 _meta: list[dict] | None = None
 
-RAG_SYSTEM_PROMPT = """Você é um assistente de inteligência financeira. Responda perguntas sobre transações financeiras baseando-se EXCLUSIVAMENTE nos dados fornecidos no contexto.
-Regras:
-1. Cite os IDs das transações relevantes (ex: txn_00001)
-2. Forneça valores numéricos quando disponíveis
-3. Se a resposta não estiver nos dados, diga "Não encontrei informações sobre isso nos dados disponíveis"
-4. Seja conciso mas completo
-5. Use formato monetário brasileiro (R$ X.XXX,XX)"""
+RAG_SYSTEM_PROMPT = (
+    "Você é um assistente de inteligência financeira. Responda perguntas sobre"
+    " transações financeiras baseando-se EXCLUSIVAMENTE nos dados fornecidos no"
+    " contexto.\n"
+    "Regras:\n"
+    "1. Cite os IDs das transações relevantes (ex: txn_00001)\n"
+    "2. Forneça valores numéricos quando disponíveis\n"
+    "3. Se a resposta não estiver nos dados, diga"
+    ' "Não encontrei informações sobre isso nos dados disponíveis"\n'
+    "4. Seja conciso mas completo\n"
+    "5. Use formato monetário brasileiro (R$ X.XXX,XX)"
+)
 
 
 def _get_model() -> TextEmbedding:
@@ -65,7 +71,9 @@ def build_faiss_index(df: pd.DataFrame) -> int:
     Path(settings.faiss_index_path).parent.mkdir(parents=True, exist_ok=True)
     faiss.write_index(index, settings.faiss_index_path)
 
-    meta = df[["id", "descricao", "cliente", "valor", "status", "categoria"]].to_dict("records")
+    meta = df[
+        ["id", "descricao", "cliente", "valor", "status", "categoria"]
+    ].to_dict("records")
     with open(settings.faiss_meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, default=str)
 
@@ -78,7 +86,9 @@ def _load_index() -> tuple[faiss.Index, list[dict]]:
     global _index, _meta
     if _index is None:
         if not Path(settings.faiss_index_path).exists():
-            raise FileNotFoundError("FAISS index não encontrado. Faça upload de dados primeiro.")
+            raise FileNotFoundError(
+                "FAISS index não encontrado. Faça upload de dados primeiro."
+            )
         _index = faiss.read_index(settings.faiss_index_path)
         with open(settings.faiss_meta_path, "r", encoding="utf-8") as f:
             _meta = json.load(f)

@@ -1,7 +1,9 @@
 import json
 import logging
 from typing import List
+
 from openai import AsyncOpenAI
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,9 @@ async def _classify_batch(descriptions: List[str]) -> List[str]:
 
     client = _get_client()
     numbered = "\n".join(f"{i+1}. {d}" for i, d in enumerate(descriptions))
-    user_msg = f"Classifique as seguintes {len(descriptions)} descrições:\n{numbered}"
+    user_msg = (
+        f"Classifique as seguintes {len(descriptions)} descrições:\n{numbered}"
+    )
 
     try:
         resp = await client.chat.completions.create(

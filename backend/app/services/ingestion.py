@@ -1,11 +1,10 @@
 import io
 import logging
-import asyncio
-from typing import Optional
+
 import pandas as pd
-from fastapi import UploadFile, HTTPException
+from fastapi import HTTPException, UploadFile
+
 from app.db import get_db
-from app.config import settings
 from app.services.classifier import classify_descriptions_batch
 from app.services.rag import build_faiss_index
 
@@ -23,7 +22,9 @@ def _clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     df["data"] = pd.to_datetime(df["data"], dayfirst=True, errors="coerce")
     df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
-    df = df.dropna(subset=["id", "valor", "data", "status", "cliente", "descricao"]).copy()
+    df = df.dropna(
+        subset=["id", "valor", "data", "status", "cliente", "descricao"]
+    ).copy()
 
     df["id"] = df["id"].astype(str).str.strip()
     df["status"] = df["status"].str.strip().str.lower()
@@ -53,12 +54,17 @@ async def process_upload(file: UploadFile) -> dict:
         elif filename.endswith(".csv"):
             df = pd.read_csv(buf)
         else:
-            raise HTTPException(status_code=400, detail="Formato não suportado. Envie .xlsx ou .csv")
+            raise HTTPException(
+                status_code=400,
+                detail="Formato não suportado. Envie .xlsx ou .csv",
+            )
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("Falha ao ler arquivo: %s", exc)
-        raise HTTPException(status_code=422, detail=f"Erro ao processar arquivo: {exc}")
+        raise HTTPException(
+            status_code=422, detail=f"Erro ao processar arquivo: {exc}"
+        )
 
     try:
         df = _clean_dataframe(df)
@@ -71,9 +77,9 @@ async def process_upload(file: UploadFile) -> dict:
     # ── Persist raw to SQLite ─────────────────────────────────────────────────
     with get_db() as conn:
         conn.execute("DELETE FROM transacoes")
-        df[["id", "valor", "data", "status", "cliente", "descricao", "categoria"]].to_sql(
-            "transacoes", conn, if_exists="append", index=False
-        )
+        df[
+            ["id", "valor", "data", "status", "cliente", "descricao", "categoria"]
+        ].to_sql("transacoes", conn, if_exists="append", index=False)
     logger.info("Transações persistidas no SQLite")
 
     # ── LLM Classification (batches of 20) ────────────────────────────────────
