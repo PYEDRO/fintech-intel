@@ -78,7 +78,6 @@ def _get_client() -> AsyncOpenAI:
 async def _classify_batch(descriptions: List[str]) -> List[str]:
     """Send one batch of descriptions to the LLM and parse categories."""
     if not settings.llm_api_key or not api_available():
-        logger.info("LLM indisponível — usando fallback por keyword.")
         return [_classify_by_keyword(d) for d in descriptions]
 
     client = _get_client()
@@ -115,6 +114,10 @@ async def _classify_batch(descriptions: List[str]) -> List[str]:
 
 async def classify_descriptions_batch(descriptions: List[str]) -> List[str]:
     """Classify all descriptions in batches of BATCH_SIZE."""
+    if not settings.llm_api_key or not api_available():
+        logger.info("LLM indisponível — classificando %d descrições por keyword.", len(descriptions))
+        return [_classify_by_keyword(d) for d in descriptions]
+
     batch_size = settings.classifier_batch_size
     results: List[str] = []
     for i in range(0, len(descriptions), batch_size):
