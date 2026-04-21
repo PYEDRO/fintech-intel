@@ -207,18 +207,18 @@ async def generate_insights() -> dict:
     fallback_insights = _build_fallback_insights(metrics)
     local_scores = _compute_client_scores_local(clients_stats)
 
-    if not settings.deepseek_api_key or not api_available():
+    if not settings.llm_api_key or not api_available():
         logger.info("LLM indisponível — retornando insights locais.")
         return {"insights": fallback_insights, "anomalias": anomalias, "score_clientes": local_scores}
 
     client = AsyncOpenAI(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
         timeout=8.0,
     )
     try:
         resp = await client.chat.completions.create(
-            model=settings.deepseek_model,
+            model=settings.llm_model,
             messages=[
                 {"role": "system", "content": INSIGHTS_SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},

@@ -79,7 +79,7 @@ async def detect_anomalies() -> list[dict]:
     # Take top 10 by score
     anomalies = sorted(anomalies, key=lambda x: x["score"], reverse=True)[:10]
 
-    if not anomalies or not settings.deepseek_api_key or not api_available():
+    if not anomalies or not settings.llm_api_key or not api_available():
         return [
             {
                 "transacao_id": a["transacao_id"],
@@ -91,8 +91,8 @@ async def detect_anomalies() -> list[dict]:
 
     # ── LLM contextualização ─────────────────────────────────────────────────
     client = AsyncOpenAI(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
         timeout=8.0,
     )
     payload = [
@@ -108,7 +108,7 @@ async def detect_anomalies() -> list[dict]:
     ]
     try:
         resp = await client.chat.completions.create(
-            model=settings.deepseek_model,
+            model=settings.llm_model,
             messages=[
                 {"role": "system", "content": ANOMALY_SYSTEM_PROMPT},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},

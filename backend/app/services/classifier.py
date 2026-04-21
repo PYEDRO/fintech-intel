@@ -69,15 +69,15 @@ def _classify_by_keyword(description: str) -> str:
 
 def _get_client() -> AsyncOpenAI:
     return AsyncOpenAI(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
         timeout=8.0,
     )
 
 
 async def _classify_batch(descriptions: List[str]) -> List[str]:
-    """Send one batch of descriptions to DeepSeek and parse categories."""
-    if not settings.deepseek_api_key or not api_available():
+    """Send one batch of descriptions to the LLM and parse categories."""
+    if not settings.llm_api_key or not api_available():
         logger.info("LLM indisponível — usando fallback por keyword.")
         return [_classify_by_keyword(d) for d in descriptions]
 
@@ -87,7 +87,7 @@ async def _classify_batch(descriptions: List[str]) -> List[str]:
 
     try:
         resp = await client.chat.completions.create(
-            model=settings.deepseek_model,
+            model=settings.llm_model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},

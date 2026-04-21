@@ -124,16 +124,16 @@ async def semantic_node(state: ChatState) -> dict:
         for s in sources
     ]
 
-    if settings.deepseek_api_key and api_available():
+    if settings.llm_api_key and api_available():
         try:
             client = AsyncOpenAI(
-                api_key=settings.deepseek_api_key,
-                base_url=settings.deepseek_base_url,
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_base_url,
                 timeout=8.0,
             )
             prompt = RAG_SYSTEM_PROMPT.format(total_docs=total_docs)
             resp = await client.chat.completions.create(
-                model=settings.deepseek_model,
+                model=settings.llm_model,
                 messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": user_msg},

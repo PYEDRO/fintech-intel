@@ -4,9 +4,9 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # LLM
-    deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    llm_api_key: str = ""
+    llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    llm_model: str = "gemma-3-27b-it"
 
     # Database
     db_path: str = "data/fintech.db"
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # Classifier
     classifier_batch_size: int = 20
 
-    @field_validator("deepseek_api_key")
+    @field_validator("llm_api_key")
     @classmethod
     def reject_placeholder_key(cls, v: str) -> str:
         if "your-key" in v or "your_key" in v:
@@ -31,7 +31,6 @@ class Settings(BaseSettings):
         return v
 
     class Config:
-        # Suporta execução de dentro de backend/ (dev local) ou da raiz (Docker/CI)
         env_file = (".env", "../.env")
         extra = "ignore"
 

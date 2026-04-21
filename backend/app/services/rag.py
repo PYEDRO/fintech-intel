@@ -447,16 +447,16 @@ async def answer_question(question: str) -> dict:
         answer_text, db_sources = _answer_aggregate(intent, question)
 
         # Com LLM: enriquece a apresentação mas com dados já corretos do banco
-        if settings.deepseek_api_key and api_available() and db_sources:
+        if settings.llm_api_key and api_available() and db_sources:
             try:
                 client = AsyncOpenAI(
-                    api_key=settings.deepseek_api_key,
-                    base_url=settings.deepseek_base_url,
+                    api_key=settings.llm_api_key,
+                    base_url=settings.llm_base_url,
                     timeout=8.0,
                 )
                 prompt = RAG_SYSTEM_PROMPT.format(total_docs=len(db_sources))
                 resp = await client.chat.completions.create(
-                    model=settings.deepseek_model,
+                    model=settings.llm_model,
                     messages=[
                         {"role": "system", "content": prompt},
                         {"role": "user", "content": (
@@ -508,16 +508,16 @@ async def answer_question(question: str) -> dict:
         f"Pergunta: {question}"
     )
 
-    if settings.deepseek_api_key and api_available():
+    if settings.llm_api_key and api_available():
         try:
             client = AsyncOpenAI(
-                api_key=settings.deepseek_api_key,
-                base_url=settings.deepseek_base_url,
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_base_url,
                 timeout=8.0,
             )
             prompt = RAG_SYSTEM_PROMPT.format(total_docs=total_docs)
             resp = await client.chat.completions.create(
-                model=settings.deepseek_model,
+                model=settings.llm_model,
                 messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": user_msg},
@@ -612,17 +612,17 @@ async def stream_answer_question(question: str):
         f"{context}\n\nPergunta: {question}"
     )
 
-    if settings.deepseek_api_key and api_available():
+    if settings.llm_api_key and api_available():
         try:
             client = AsyncOpenAI(
-                api_key=settings.deepseek_api_key,
-                base_url=settings.deepseek_base_url,
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_base_url,
                 timeout=8.0,
             )
             prompt = RAG_SYSTEM_PROMPT.format(total_docs=total_docs)
             # stream=True → tokens gerados incrementalmente pela API
             stream = await client.chat.completions.create(
-                model=settings.deepseek_model,
+                model=settings.llm_model,
                 messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": user_msg},
