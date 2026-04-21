@@ -2,9 +2,10 @@ import json
 import logging
 from typing import List
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIStatusError
 
 from app.config import settings
+from app.services._llm_state import api_available, mark_api_down
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,6 @@ def _classify_by_keyword(description: str) -> str:
     for category, keywords in _KEYWORD_MAP.items():
         if any(kw in desc_lower for kw in keywords):
             return category
-    # Default to most generic category rather than "Não Classificado"
     return "Serviço Avulso"
 
 
@@ -71,15 +71,14 @@ def _get_client() -> AsyncOpenAI:
     return AsyncOpenAI(
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
+        timeout=8.0,
     )
 
 
 async def _classify_batch(descriptions: List[str]) -> List[str]:
     """Send one batch of descriptions to DeepSeek and parse categories."""
-    if not settings.deepseek_api_key:
-        logger.info(
-            "DeepSeek API key not set — using keyword-based fallback classifier."
-        )
+    if not settings.deepseek_api_key or not api_available():
+        logger.info("LLM indisponível — usando fallback por keyword.")
         return [_classify_by_keyword(d) for d in descriptions]
 
     client = _get_client()
@@ -97,17 +96,20 @@ async def _classify_batch(descriptions: List[str]) -> List[str]:
             max_tokens=512,
         )
         raw = resp.choices[0].message.content.strip()
-        # Extract JSON array even if wrapped in markdown
         if "```" in raw:
             raw = raw.split("```")[1].lstrip("json").strip()
         categories = json.loads(raw)
         if not isinstance(categories, list) or len(categories) != len(descriptions):
             raise ValueError("Unexpected response shape")
-        return [c if c in CATEGORIES else "Não Classificado" for c in categories]
+        return [c if c in CATEGORIES else "Serviço Avulso" for c in categories]
+    except APIStatusError as exc:
+        if exc.status_code in (401, 402):
+            mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
+        else:
+            logger.warning("Classificação LLM falhou: %s — usando fallback por keyword.", exc)
+        return [_classify_by_keyword(d) for d in descriptions]
     except Exception as exc:
-        logger.warning(
-            "Classificação LLM falhou: %s — usando fallback por keyword.", exc
-        )
+        logger.warning("Classificação LLM falhou: %s — usando fallback por keyword.", exc)
         return [_classify_by_keyword(d) for d in descriptions]
 
 

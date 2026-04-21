@@ -94,7 +94,8 @@ async def semantic_node(state: ChatState) -> dict:
     )
     from app.config import settings
     from app.db import get_db
-    from openai import AsyncOpenAI
+    from openai import AsyncOpenAI, APIStatusError
+    from app.services._llm_state import api_available, mark_api_down
 
     question = state["question"]
     logger.info("[Semantic Node] FAISS retrieval: '%s...'", question[:50])
@@ -123,11 +124,12 @@ async def semantic_node(state: ChatState) -> dict:
         for s in sources
     ]
 
-    if settings.deepseek_api_key:
+    if settings.deepseek_api_key and api_available():
         try:
             client = AsyncOpenAI(
                 api_key=settings.deepseek_api_key,
                 base_url=settings.deepseek_base_url,
+                timeout=8.0,
             )
             prompt = RAG_SYSTEM_PROMPT.format(total_docs=total_docs)
             resp = await client.chat.completions.create(
@@ -141,11 +143,17 @@ async def semantic_node(state: ChatState) -> dict:
             )
             answer = resp.choices[0].message.content.strip()
             logger.info("[Semantic Node] LLM (%d chars).", len(answer))
+        except APIStatusError as exc:
+            if exc.status_code in (401, 402):
+                mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
+            else:
+                logger.warning("[Semantic Node] LLM falhou: %s", exc)
+            answer = _rule_based_specific(question, sources)
         except Exception as exc:
-            logger.exception("[Semantic Node] LLM falhou → rule-based: %s", exc)
+            logger.warning("[Semantic Node] LLM falhou → rule-based: %s", exc)
             answer = _rule_based_specific(question, sources)
     else:
-        logger.info("[Semantic Node] sem API key → rule-based.")
+        logger.info("[Semantic Node] LLM indisponível → rule-based.")
         answer = _rule_based_specific(question, sources)
 
     return {"answer": answer, "sources": formatted_sources}

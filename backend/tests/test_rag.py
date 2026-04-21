@@ -165,25 +165,70 @@ class TestRetrieve:
 @pytest.mark.asyncio
 class TestAnswerQuestion:
     async def test_no_api_key_returns_fallback(self, tmp_path):
+        """Pergunta específica (não-agregada) → vai para FAISS + rule-based quando sem API key."""
         import app.services.rag as rag_module
+        from contextlib import contextmanager
+
         rag_module._model = None
         rag_module._index = None
         rag_module._meta = None
 
+        # Mock get_db para a query COUNT(*) feita no ramo semântico
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = [5]
+
+        @contextmanager
+        def fake_get_db():
+            yield mock_conn
+
         df = make_test_df(5)
-        with patch("app.services.rag.settings") as mock_settings:
+        with (
+            patch("app.services.rag.settings") as mock_settings,
+            patch("app.services.rag.get_db", fake_get_db),
+        ):
             mock_settings.embedding_model = "all-MiniLM-L6-v2"
             mock_settings.embedding_dim = 384
             mock_settings.faiss_index_path = str(tmp_path / "faiss.index")
             mock_settings.faiss_meta_path = str(tmp_path / "meta.json")
             mock_settings.rag_top_k = 5
-            mock_settings.deepseek_api_key = ""  # no key
+            mock_settings.deepseek_api_key = ""  # no key → rule-based fallback
             mock_settings.deepseek_base_url = "https://api.deepseek.com"
             mock_settings.deepseek_model = "deepseek-chat"
 
             build_faiss_index(df)
-            result = await answer_question("quais transações estão atrasadas?")
+            # Pergunta específica (não agrega totais) → usa FAISS path
+            result = await answer_question("qual o detalhe da contratação de serviço premium?")
 
         assert "answer" in result
         assert "sources" in result
         assert isinstance(result["sources"], list)
+
+    async def test_aggregate_intent_uses_db_directly(self, tmp_path):
+        """Pergunta de agregação → usa get_db diretamente sem precisar de FAISS ou API key."""
+        import app.services.rag as rag_module
+        from contextlib import contextmanager
+
+        rag_module._model = None
+        rag_module._index = None
+        rag_module._meta = None
+
+        # Simula banco com 1 transação atrasada
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        summary_row = MagicMock()
+        summary_row.__getitem__ = lambda self, k: {"cnt": 1, "soma": 500.0}[k]
+        top_row = MagicMock()
+        top_row.__iter__ = MagicMock(return_value=iter([]))
+        mock_conn.execute.return_value.fetchone.return_value = summary_row
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        @contextmanager
+        def fake_get_db():
+            yield mock_conn
+
+        with patch("app.services.rag.get_db", fake_get_db):
+            result = await answer_question("quais transações estão atrasadas?")
+
+        assert "answer" in result
+        assert "sources" in result

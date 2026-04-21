@@ -6,10 +6,11 @@ import faiss
 import numpy as np
 import pandas as pd
 from fastembed import TextEmbedding
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIStatusError
 
 from app.config import settings
 from app.db import get_db
+from app.services._llm_state import api_available, mark_api_down
 
 logger = logging.getLogger(__name__)
 
@@ -446,11 +447,12 @@ async def answer_question(question: str) -> dict:
         answer_text, db_sources = _answer_aggregate(intent, question)
 
         # Com LLM: enriquece a apresentação mas com dados já corretos do banco
-        if settings.deepseek_api_key and db_sources:
+        if settings.deepseek_api_key and api_available() and db_sources:
             try:
                 client = AsyncOpenAI(
                     api_key=settings.deepseek_api_key,
                     base_url=settings.deepseek_base_url,
+                    timeout=8.0,
                 )
                 prompt = RAG_SYSTEM_PROMPT.format(total_docs=len(db_sources))
                 resp = await client.chat.completions.create(
@@ -470,6 +472,11 @@ async def answer_question(question: str) -> dict:
                 llm_text = resp.choices[0].message.content.strip()
                 logger.info("LLM formatou resposta agregada.")
                 return {"answer": llm_text, "sources": db_sources}
+            except APIStatusError as exc:
+                if exc.status_code in (401, 402):
+                    mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
+                else:
+                    logger.warning("LLM falhou no ramo agregado: %s", exc)
             except Exception as exc:
                 logger.warning(
                     "LLM falhou no ramo agregado, retornando dado bruto: %s", exc
@@ -501,11 +508,12 @@ async def answer_question(question: str) -> dict:
         f"Pergunta: {question}"
     )
 
-    if settings.deepseek_api_key:
+    if settings.deepseek_api_key and api_available():
         try:
             client = AsyncOpenAI(
                 api_key=settings.deepseek_api_key,
                 base_url=settings.deepseek_base_url,
+                timeout=8.0,
             )
             prompt = RAG_SYSTEM_PROMPT.format(total_docs=total_docs)
             resp = await client.chat.completions.create(
@@ -519,11 +527,17 @@ async def answer_question(question: str) -> dict:
             )
             answer_text = resp.choices[0].message.content.strip()
             logger.info("RAG LLM respondeu (%d chars).", len(answer_text))
+        except APIStatusError as exc:
+            if exc.status_code in (401, 402):
+                mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
+            else:
+                logger.warning("RAG LLM falhou: %s", exc)
+            answer_text = _rule_based_specific(question, sources)
         except Exception as exc:
-            logger.exception("RAG LLM falhou — usando rule-based. Erro: %s", exc)
+            logger.warning("RAG LLM falhou — usando rule-based. Erro: %s", exc)
             answer_text = _rule_based_specific(question, sources)
     else:
-        logger.info("DEEPSEEK_API_KEY não configurada — usando rule-based.")
+        logger.info("LLM indisponível — usando rule-based.")
         answer_text = _rule_based_specific(question, sources)
 
     return {
@@ -587,7 +601,8 @@ async def stream_answer_question(question: str):
         return
 
     try:
-        total_docs = _get_total_count()
+        with get_db() as conn:
+            total_docs = conn.execute("SELECT COUNT(*) FROM transacoes").fetchone()[0]
     except Exception:
         total_docs = "?"
 
@@ -597,11 +612,12 @@ async def stream_answer_question(question: str):
         f"{context}\n\nPergunta: {question}"
     )
 
-    if settings.deepseek_api_key:
+    if settings.deepseek_api_key and api_available():
         try:
             client = AsyncOpenAI(
                 api_key=settings.deepseek_api_key,
                 base_url=settings.deepseek_base_url,
+                timeout=8.0,
             )
             prompt = RAG_SYSTEM_PROMPT.format(total_docs=total_docs)
             # stream=True → tokens gerados incrementalmente pela API
@@ -619,15 +635,20 @@ async def stream_answer_question(question: str):
                 token = chunk.choices[0].delta.content
                 if token:
                     yield {"type": "token", "data": token}
+            yield {"type": "done", "data": ""}
+            return
+        except APIStatusError as exc:
+            if exc.status_code in (401, 402):
+                mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
+            else:
+                logger.warning("[Stream] LLM falhou: %s", exc)
         except Exception as exc:
-            logger.exception("[Stream] LLM falhou — usando rule-based. Erro: %s", exc)
-            fallback = _rule_based_specific(question, sources)
-            for chunk in _text_chunks(fallback):
-                yield {"type": "token", "data": chunk}
-    else:
-        logger.info("[Stream] DEEPSEEK_API_KEY ausente — usando rule-based.")
-        fallback = _rule_based_specific(question, sources)
-        for chunk in _text_chunks(fallback):
-            yield {"type": "token", "data": chunk}
+            logger.warning("[Stream] LLM falhou — usando rule-based. Erro: %s", exc)
+
+    # Fallback rule-based (sem LLM ou após circuit breaker)
+    logger.info("[Stream] usando rule-based.")
+    fallback = _rule_based_specific(question, sources)
+    for chunk in _text_chunks(fallback):
+        yield {"type": "token", "data": chunk}
 
     yield {"type": "done", "data": ""}

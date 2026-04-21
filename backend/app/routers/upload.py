@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """
 Router de upload — modo assíncrono com BackgroundTasks.
 
@@ -78,25 +77,12 @@ async def upload_status(job_id: str) -> UploadStatusResponse:
             status_code=404,
             detail=f"Job '{job_id}' não encontrado. Pode ter expirado (TTL: 2h).",
         )
-    return UploadStatusResponse(**job)
-=======
-import logging
-
-from fastapi import APIRouter, File, HTTPException, UploadFile
-
-from app.models.schemas import UploadResponse
-from app.services.ingestion import process_upload
-
-router = APIRouter(prefix="/api", tags=["upload"])
-logger = logging.getLogger(__name__)
-
-
-@router.post("/upload", response_model=UploadResponse)
-async def upload_file(file: UploadFile = File(...)) -> UploadResponse:
-    """Receive XLSX/CSV, run ingestion pipeline and return summary."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Arquivo inválido")
-
-    result = await process_upload(file)
-    return UploadResponse(**result)
->>>>>>> 2eb76bd40a96b88b53abc41d623cae6580f1e188
+    return UploadStatusResponse(
+        job_id=job_id,
+        status=job["status"],
+        progress=job["progress"],
+        step=job["step"],
+        result=job.get("result"),
+        error=job.get("error"),
+        created_at=job["created_at"],
+    )

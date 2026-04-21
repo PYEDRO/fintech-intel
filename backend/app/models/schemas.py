@@ -1,10 +1,4 @@
-<<<<<<< HEAD
-from pydantic import BaseModel, Field
-from typing import Optional, List, Literal, Any
-from datetime import date
-=======
-from typing import List, Literal, Optional
->>>>>>> 2eb76bd40a96b88b53abc41d623cae6580f1e188
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -133,9 +127,9 @@ class ChatSource(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=500)
+    question: str
 
 
 class ChatResponse(BaseModel):
     answer: str
-    sources: List[ChatSource]
+    sources: List[ChatSource] = []

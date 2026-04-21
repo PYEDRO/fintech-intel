@@ -9,6 +9,9 @@ services:
       - ./backend/data:/app/data
     env_file:
       - .env
+    environment:
+      # Suprime o warning de GPU discovery do ONNX Runtime (fastembed roda em CPU no container)
+      - ORT_LOGGING_LEVEL=3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

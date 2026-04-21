@@ -1,23 +1,43 @@
-﻿name: PR Check
+name: PR Check
 
 on:
   pull_request:
     branches: [main, develop]
 
 jobs:
+
   security-check:
+    name: Security & Validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Block .env commits
         run: |
           if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '^\.env$'; then
             echo "ERROR: .env file must not be committed"
             exit 1
           fi
+
       - name: Validate docker-compose
         run: docker compose -f docker-compose.yml config > /dev/null
+
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
       - name: Run tests
         run: |
-          pip install -r backend/requirements.txt
-          cd backend && pytest tests/ -p no:cacheprovider -q
+          cd backend
+          pytest tests/ -p no:cacheprovider -q --tb=short

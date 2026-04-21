@@ -2,10 +2,11 @@ import json
 import logging
 
 import numpy as np
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIStatusError
 
 from app.config import settings
 from app.db import get_db
+from app.services._llm_state import api_available, mark_api_down
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,6 @@ async def detect_anomalies() -> list[dict]:
     p75 = float(np.percentile(all_vals, 75))
     for r in records:
         if r["status"] == "atrasado" and r["valor"] > p75:
-            # avoid duplicating
             existing_ids = {a["transacao_id"] for a in anomalies}
             if r["id"] not in existing_ids:
                 anomalies.append({
@@ -79,7 +79,7 @@ async def detect_anomalies() -> list[dict]:
     # Take top 10 by score
     anomalies = sorted(anomalies, key=lambda x: x["score"], reverse=True)[:10]
 
-    if not anomalies or not settings.deepseek_api_key:
+    if not anomalies or not settings.deepseek_api_key or not api_available():
         return [
             {
                 "transacao_id": a["transacao_id"],
@@ -93,6 +93,7 @@ async def detect_anomalies() -> list[dict]:
     client = AsyncOpenAI(
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
+        timeout=8.0,
     )
     payload = [
         {
@@ -117,16 +118,34 @@ async def detect_anomalies() -> list[dict]:
         )
         raw = resp.choices[0].message.content.strip()
         if "```" in raw:
-            raw = raw.split("```")[1].lstrip("json").strip()
-        enriched = json.loads(raw)
-        return enriched
-    except Exception as exc:
-        logger.warning("Anomaly LLM enrichment falhou: %s", exc)
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        llm_results = json.loads(raw)
+        # Validate minimal shape
         return [
             {
-                "transacao_id": a["transacao_id"],
-                "motivo": a["motivo"],
-                "score": a["score"],
+                "transacao_id": str(item.get("transacao_id", "")),
+                "motivo": str(item.get("motivo", "")),
+                "score": float(item.get("score", 0.5)),
             }
-            for a in anomalies
+            for item in llm_results
+            if isinstance(item, dict)
         ]
+    except APIStatusError as exc:
+        if exc.status_code in (401, 402):
+            mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
+        else:
+            logger.warning("LLM anomaly falhou: %s — usando fallback estatístico.", exc)
+    except Exception as exc:
+        logger.warning("LLM anomaly contextualização falhou: %s — usando fallback estatístico.", exc)
+
+    # Fallback: return statistical results without LLM enrichment
+    return [
+        {
+            "transacao_id": a["transacao_id"],
+            "motivo": a["motivo"],
+            "score": a["score"],
+        }
+        for a in anomalies
+    ]
