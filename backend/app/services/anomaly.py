@@ -133,7 +133,7 @@ async def detect_anomalies() -> list[dict]:
             if isinstance(item, dict)
         ]
     except APIStatusError as exc:
-        if exc.status_code in (401, 402, 403, 404):
+        if exc.status_code in (400, 401, 402, 403, 404):
             mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
         else:
             logger.warning("LLM anomaly falhou: %s — usando fallback estatístico.", exc)

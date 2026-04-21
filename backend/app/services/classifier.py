@@ -102,7 +102,7 @@ async def _classify_batch(descriptions: List[str]) -> List[str]:
             raise ValueError("Unexpected response shape")
         return [c if c in CATEGORIES else "Serviço Avulso" for c in categories]
     except APIStatusError as exc:
-        if exc.status_code in (401, 402, 403, 404):
+        if exc.status_code in (400, 401, 402, 403, 404):
             mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
         else:
             logger.warning("Classificação LLM falhou: %s — usando fallback por keyword.", exc)

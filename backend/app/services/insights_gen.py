@@ -257,7 +257,7 @@ async def generate_insights() -> dict:
         return {"insights": insights, "anomalias": anomalias, "score_clientes": scores}
 
     except APIStatusError as exc:
-        if exc.status_code in (401, 402, 403, 404):
+        if exc.status_code in (400, 401, 402, 403, 404):
             mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
         else:
             logger.warning("Insights LLM falhou: %s", exc)
