@@ -144,7 +144,7 @@ async def semantic_node(state: ChatState) -> dict:
             answer = resp.choices[0].message.content.strip()
             logger.info("[Semantic Node] LLM (%d chars).", len(answer))
         except APIStatusError as exc:
-            if exc.status_code in (401, 402):
+            if exc.status_code in (401, 402, 403, 404):
                 mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
             else:
                 logger.warning("[Semantic Node] LLM falhou: %s", exc)

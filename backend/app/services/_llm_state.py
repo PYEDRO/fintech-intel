@@ -1,14 +1,10 @@
 """
 Circuit breaker com time-based reset para chamadas LLM.
 
-Quando a API retorna 402/401 (saldo insuficiente ou chave inválida),
-marca como indisponível e aguarda RETRY_INTERVAL segundos antes de tentar
-novamente — evita flood de requests enquanto o saldo está zerado, mas
-recupera automaticamente após recarga de créditos sem restart do container.
-
 Política:
-  - 402/401 → circuit abre, retry após RETRY_INTERVAL (padrão: 1800s / 30min)
-  - Outros erros HTTP → não abrem o circuit (podem ser transientes)
+  - 401/402/403 → billing/auth → retry após RETRY_INTERVAL (5 min)
+  - 404          → modelo inválido → retry após RETRY_INTERVAL (5 min)
+  - Outros erros → transientes, não abrem o circuit
   - Reset manual: chamar reset_circuit()
 """
 import logging

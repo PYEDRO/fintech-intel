@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     # LLM
     llm_api_key: str = ""
     llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    llm_model: str = "gemma-3-27b-it"
+    llm_model: str = "gemma-4-26b-it"
 
     # Database
     db_path: str = "data/fintech.db"

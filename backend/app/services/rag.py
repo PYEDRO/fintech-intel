@@ -473,7 +473,7 @@ async def answer_question(question: str) -> dict:
                 logger.info("LLM formatou resposta agregada.")
                 return {"answer": llm_text, "sources": db_sources}
             except APIStatusError as exc:
-                if exc.status_code in (401, 402):
+                if exc.status_code in (401, 402, 403, 404):
                     mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
                 else:
                     logger.warning("LLM falhou no ramo agregado: %s", exc)
@@ -528,7 +528,7 @@ async def answer_question(question: str) -> dict:
             answer_text = resp.choices[0].message.content.strip()
             logger.info("RAG LLM respondeu (%d chars).", len(answer_text))
         except APIStatusError as exc:
-            if exc.status_code in (401, 402):
+            if exc.status_code in (401, 402, 403, 404):
                 mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
             else:
                 logger.warning("RAG LLM falhou: %s", exc)
@@ -638,7 +638,7 @@ async def stream_answer_question(question: str):
             yield {"type": "done", "data": ""}
             return
         except APIStatusError as exc:
-            if exc.status_code in (401, 402):
+            if exc.status_code in (401, 402, 403, 404):
                 mark_api_down(f"HTTP {exc.status_code} — {exc.message}")
             else:
                 logger.warning("[Stream] LLM falhou: %s", exc)
