@@ -1,6 +1,6 @@
 # FinTech Intel — AI-Powered Financial Intelligence Platform
 
-Plataforma fullstack para análise inteligente de transações financeiras, combinando pipelines de dados com LLM (DeepSeek) e busca semântica (RAG + FAISS).
+Plataforma fullstack para análise inteligente de transações financeiras, combinando pipelines de dados com LLM (Gemma 4) e busca semântica (RAG + FAISS).
 
 ---
 
@@ -12,7 +12,7 @@ Plataforma fullstack para análise inteligente de transações financeiras, comb
 | Banco de dados | SQLite + WAL mode | zero-config, portável, suficiente para ~100k txn |
 | Embeddings | sentence-transformers `all-MiniLM-L6-v2` | modelo compacto (384d), excelente custo-benefício semântico |
 | Vector store | FAISS `IndexFlatIP` | cosine similarity via inner product com normalização L2 |
-| LLM | DeepSeek (`deepseek-chat`) | custo muito baixo vs GPT-4, compatível com SDK OpenAI |
+| LLM | Gemma 4 (`Gemma 4-chat`) | custo muito baixo vs GPT-4, compatível com SDK OpenAI |
 | Frontend | Next.js 14 App Router + TypeScript | SSR, routing nativo, ecosistema maduro |
 | Charts | Recharts | declarativo, integrado ao React sem overhead |
 | Infra | Docker Compose | reprodutibilidade, isolamento, zero-dependency |
@@ -58,7 +58,7 @@ Plataforma fullstack para análise inteligente de transações financeiras, comb
 └─────────────────────────────────────────────────────────────┘
 
 Ingestion Pipeline:
-XLSX/CSV ──▶ Pandas ──▶ SQLite ──▶ DeepSeek Classifier ──▶ FAISS Index
+XLSX/CSV ──▶ Pandas ──▶ SQLite ──▶ Gemma 4 Classifier ──▶ FAISS Index
                                        (batches of 20)     (sentence-transformers)
 ```
 
@@ -68,7 +68,7 @@ XLSX/CSV ──▶ Pandas ──▶ SQLite ──▶ DeepSeek Classifier ──�
 
 ### Pré-requisitos
 - Docker + Docker Compose v2+
-- Chave de API DeepSeek (para features de LLM)
+- Chave de API Gemma 4 (para features de LLM)
 
 ### Setup
 
@@ -79,7 +79,7 @@ cd fintech-intel
 
 # 2. Configure as variáveis de ambiente
 cp .env.example .env
-# Edite .env e adicione sua DEEPSEEK_API_KEY
+# Edite .env e adicione sua Gemma 4_API_KEY
 
 # 3. Suba os serviços
 docker-compose up --build
@@ -110,15 +110,15 @@ npm run dev
 
 | Variável | Obrigatório | Descrição |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | Sim | Chave da API DeepSeek |
-| `DEEPSEEK_BASE_URL` | Não | Default: `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | Não | Default: `deepseek-chat` |
+| `Gemma 4_API_KEY` | Sim | Chave da API Gemma 4 |
+| `Gemma 4_BASE_URL` | Não | Default: `https://api.Gemma 4.com` |
+| `Gemma 4_MODEL` | Não | Default: `Gemma 4-chat` |
 | `DB_PATH` | Não | Path do SQLite. Default: `data/fintech.db` |
 | `FAISS_INDEX_PATH` | Não | Default: `data/faiss.index` |
 | `RAG_TOP_K` | Não | Top-K retrieval. Default: `10` |
 | `CLASSIFIER_BATCH_SIZE` | Não | Default: `20` |
 
-> **Nota:** sem `DEEPSEEK_API_KEY`, o sistema funciona em modo degradado — métricas e tabelas funcionam normalmente, mas classificação LLM, insights e RAG retornam resultados estáticos/fallback.
+> **Nota:** sem `Gemma 4_API_KEY`, o sistema funciona em modo degradado — métricas e tabelas funcionam normalmente, mas classificação LLM, insights e RAG retornam resultados estáticos/fallback.
 
 ---
 
@@ -182,7 +182,7 @@ Suítes:
 - **SQLite vs PostgreSQL** — Para o scope deste case, SQLite é suficiente e elimina infraestrutura extra. Com >500k transações ou multi-usuário concorrente, migrar para PostgreSQL.
 - **FAISS IndexFlatIP vs IVF** — FlatIP é exato (brute-force) e correto para ~100k vetores. Para escala maior, usar `IndexIVFFlat` com treinamento.
 - **Embedding on-the-fly vs pre-computed** — Modelo carregado em memória no startup. Em produção, usar um serviço de embedding dedicado (e.g. Azure OpenAI Embeddings).
-- **DeepSeek sync classification** — Batches processados sequencialmente. Com volume alto, paralelizar com `asyncio.gather` e rate limiting.
+- **Gemma 4 sync classification** — Batches processados sequencialmente. Com volume alto, paralelizar com `asyncio.gather` e rate limiting.
 
 **O que faria diferente com mais tempo:**
 
