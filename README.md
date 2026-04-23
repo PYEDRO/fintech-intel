@@ -187,13 +187,8 @@ Suítes:
 **O que faria diferente com mais tempo:**
 
 1. **Auth layer** — JWT + RBAC para multi-tenant (crítico para SaaS edtech)
-2. **Background jobs** — Celery/Redis para classification/indexing assíncrono com progresso em SSE
-3. **Streaming chat** — Server-Sent Events no endpoint `/api/chat` para UX mais responsivo
 4. **Cache de métricas** — Redis com TTL curto para evitar recalcular aggregations a cada request
-5. **CI/CD pipeline** — GitHub Actions com lint, test, build, push de imagem para Registry
 6. **Observabilidade** — OpenTelemetry + Prometheus/Grafana para métricas de latência e throughput
 7. **Migrations** — Alembic para versionamento de schema SQLite/PostgreSQL
 
----
 
-*Desenvolvido como case técnico para a posição de AI Analyst — Vício de uma Estudante.*
